@@ -104,7 +104,7 @@ async function pedidos(){
     ${(data || []).map(p => `<div class="card">
       <div class="row"><strong>#${p.id}</strong><span class="state ${p.estado}">${ESTADOS[p.estado]}</span><span class="muted">${fecha(p.creado)}</span><span class="sp"></span><strong>${plata(p.total)}</strong></div>
       <div style="margin:8px 0">${esc(p.nombre)} · <a href="${waLink(p.whatsapp)}" target="_blank" rel="noopener">${esc(p.whatsapp)}</a>${p.email ? ' · ' + esc(p.email) : ''}</div>
-      <div class="muted">${p.entrega === 'envio' ? 'Envío: ' + esc(p.direccion) : 'Retira en el local'}${p.notas ? ' · Nota: ' + esc(p.notas) : ''}</div>
+      <div class="muted">${p.entrega === 'envio' ? 'Envío: ' + esc(p.direccion) : 'Retira en el local'}${p.notas ? ' · Nota: ' + esc(p.notas) : ''}${p.envio ? ' · Envío ' + plata(p.envio) : ''}</div>
       <ul style="margin:8px 0;padding-left:18px">${p.tienda_pedido_items.map(i => `<li>${i.cant} × ${esc(i.nombre)} · talle ${esc(i.talle)}${i.color ? ' · ' + esc(i.color) : ''} — ${plata(i.precio * i.cant)}</li>`).join('')}</ul>
       ${p.estado === 'pendiente' ? `<div class="muted" style="font-size:12px;margin-bottom:8px">Se libera el stock el ${fecha(p.vence_en)} si no paga.</div>` : ''}
       <div class="row">${acciones(p.estado).map(([e, t, c]) => `<button class="btn ${c}" data-p="${p.id}" data-e="${e}">${t}</button>`).join('')}</div>
@@ -345,15 +345,22 @@ async function ajustes(){
       <div><label>CBU / CVU</label><input id="cc" value="${esc(c.cbu)}"></div>
       <div><label>Titular de la cuenta</label><input id="ct" value="${esc(c.titular)}"></div>
       <div><label>Horas que se guarda un pedido sin pagar</label><input id="ch" type="number" min="1" max="168" value="${c.horas_reserva}"></div>
+      <div><label>Compra mínima (0 = sin mínimo)</label><input id="cmin" type="number" min="0" value="${c.compra_minima}"></div>
+      <div><label>Costo de envío (se suma al total si eligen envío)</label><input id="cenv" type="number" min="0" value="${c.costo_envio}"></div>
+      <div><label>Instagram (sin @)</label><input id="cig" value="${esc(c.instagram)}"></div>
     </div>
-    <label>Nota sobre envíos (se muestra al elegir envío)</label><textarea id="ce">${esc(c.nota_envio)}</textarea>
+    <label>Avisos de la barra de arriba (uno por línea)</label><textarea id="can">${esc(c.anuncio)}</textarea>
+    <label>"Antes de comprar": condiciones, horarios, devoluciones (una por línea)</label><textarea id="cinf" style="min-height:110px">${esc(c.info_compra)}</textarea>
+    <label>Nota sobre envíos (uso interno)</label><textarea id="ce">${esc(c.nota_envio)}</textarea>
     <div class="err" id="ce2"></div><div style="margin-top:14px"><button class="btn" id="cg">Guardar</button></div></div>`;
   $('#cg').onclick = async () => {
     const wa = $('#cw').value.replace(/\D/g, '');
     const { error } = await sb.from('tienda_config').update({
       nombre_tienda: $('#cn').value.trim() || 'Lilen Márquez', whatsapp: wa || null, alias: $('#ca').value.trim() || null,
       cbu: $('#cc').value.trim() || null, titular: $('#ct').value.trim() || null,
-      horas_reserva: Math.min(168, Math.max(1, parseInt($('#ch').value || 48))), nota_envio: $('#ce').value.trim() || null
+      horas_reserva: Math.min(168, Math.max(1, parseInt($('#ch').value || 48))), nota_envio: $('#ce').value.trim() || null,
+      compra_minima: Math.max(0, Number($('#cmin').value || 0)), costo_envio: Math.max(0, Number($('#cenv').value || 0)),
+      instagram: $('#cig').value.trim().replace(/^@/, '') || null, anuncio: $('#can').value.trim() || null, info_compra: $('#cinf').value.trim() || null
     }).eq('id', 1);
     if (error){ const e = $('#ce2'); e.textContent = em(error); e.style.display = 'block'; return; }
     toast('Guardado');
