@@ -3,8 +3,18 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Lilén Márquez · Indumentaria</title>
-<meta name="description" content="Lilén Márquez Indumentaria. Jeans, camperas, conjuntos y más. Envíos a todo el país.">
+<title>Lilén Márquez Indumentaria | Tienda online oficial</title>
+<meta name="description" content="Tienda online oficial de Lilén Márquez Indumentaria. Jeans, camperas, conjuntos, vestidos y más. Envíos a todo el país.">
+<link rel="canonical" href="https://lilenmarquez.com.ar/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Lilén Márquez Indumentaria">
+<meta property="og:title" content="Lilén Márquez Indumentaria | Tienda online oficial">
+<meta property="og:description" content="Jeans, camperas, conjuntos, vestidos y más. Envíos a todo el país.">
+<meta property="og:url" content="https://lilenmarquez.com.ar/">
+<meta property="og:locale" content="es_AR">
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"ClothingStore","name":"Lilén Márquez Indumentaria","alternateName":["Lilen Marquez","Lilén Márquez"],"url":"https://lilenmarquez.com.ar/","telephone":"+54 9 11 3161-9088","areaServed":"AR","currenciesAccepted":"ARS","paymentAccepted":"Transferencia bancaria"}
+</script>
 <meta name="theme-color" content="#FFF8F9">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -302,7 +312,7 @@ let cart = store.get('lilen-carrito', []); // [{variante_id, cant}]
 // ---------- paneles ----------
 let abierto = null, foco = null;
 function abrir(id){ if (!abierto) foco = document.activeElement; cerrar(true); abierto = $(id); abierto.classList.add('open'); $('#overlay').classList.add('open'); document.body.style.overflow = 'hidden'; const x = abierto.querySelector('.x'); if (x) x.focus(); }
-function cerrar(silencio){ if (abierto) abierto.classList.remove('open'); abierto = null; $('#overlay').classList.remove('open'); document.body.style.overflow = ''; if (!silencio && foco) { foco.focus?.(); foco = null; } }
+function cerrar(silencio){ if (abierto === $('#mProd')) sacarUrlProducto(); if (abierto) abierto.classList.remove('open'); abierto = null; $('#overlay').classList.remove('open'); document.body.style.overflow = ''; if (!silencio && foco) { foco.focus?.(); foco = null; } }
 $('#overlay').onclick = () => cerrar();
 document.querySelectorAll('[data-close]').forEach(b => b.onclick = () => cerrar());
 document.addEventListener('keydown', e => { if (e.key === 'Escape') cerrar(); });
@@ -418,6 +428,24 @@ function verProducto(id){
     if (dots.length){ const marcar = () => { const i = Math.round(gal.scrollLeft / gal.clientWidth); dots.forEach((d, k) => d.style.background = k === i ? 'var(--peony)' : ''); }; gal.onscroll = marcar; marcar(); }
   };
   pintar(); abrir('#mProd');
+  ponerUrlProducto(p);
+}
+// Cada producto tiene su propio link (?p=ID): sirve para compartir en Instagram y para que Google lo indexe
+const TITULO_BASE = document.title;
+function ponerUrlProducto(p){
+  try { history.replaceState(null, '', '?p=' + p.id); } catch {}
+  document.title = p.nombre + ' | Lilén Márquez';
+  const og = foto(p);
+  let ld = document.getElementById('ldProd'); if (!ld){ ld = document.createElement('script'); ld.type = 'application/ld+json'; ld.id = 'ldProd'; document.head.appendChild(ld); }
+  const st = stockTotal(p);
+  ld.textContent = JSON.stringify({ '@context':'https://schema.org', '@type':'Product', name: p.nombre, image: p.fotos || [], description: p.descripcion || p.nombre,
+    category: p.categoria || undefined, brand: { '@type':'Brand', name:'Lilén Márquez' },
+    offers: { '@type':'Offer', priceCurrency:'ARS', price: Math.min(...(p.vars.length ? p.vars.map(v => pv(p, v)) : [Number(p.precio)])),
+      availability: st > 0 ? 'https://schema.org/InStock' : 'https://schema.org/OutOfStock', url: 'https://lilenmarquez.com.ar/?p=' + p.id } });
+}
+function sacarUrlProducto(){
+  if (new URLSearchParams(location.search).has('p')) { try { history.replaceState(null, '', location.pathname); } catch {} }
+  document.title = TITULO_BASE; const ld = document.getElementById('ldProd'); if (ld) ld.remove();
 }
 
 // ---------- bolsa ----------
@@ -622,6 +650,8 @@ sb.auth.onAuthStateChange((ev, s) => {
 });
 sb.auth.getSession().then(({ data }) => { session = data.session; });
 cargar().then(() => {
+  const prodId = Number(new URLSearchParams(location.search).get('p'));
+  if (prodId && productos.some(x => x.id === prodId)) verProducto(prodId);
   const t = new URLSearchParams(location.search).get('pedido');
   if (t) verPedidoToken(t);
 });
