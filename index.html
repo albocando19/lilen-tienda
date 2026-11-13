@@ -288,6 +288,10 @@ async function checkout(){
   if (session){
     const { data } = await sb.from('tienda_clientes').select('*').eq('id', session.user.id).maybeSingle();
     if (data) pre = { ...pre, nombre: data.nombre, whatsapp: data.whatsapp, direccion: data.direccion };
+    else {
+      const prev = await sb.rpc('tienda_mis_datos_previos');
+      if (prev.data) pre = { ...pre, nombre: prev.data.nombre || pre.nombre, whatsapp: prev.data.whatsapp || pre.whatsapp, direccion: prev.data.direccion || pre.direccion };
+    }
     pre.email = session.user.email;
   }
   let entrega = pre.entrega || 'retiro';

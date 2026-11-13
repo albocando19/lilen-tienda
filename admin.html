@@ -7,6 +7,7 @@
 <title>Tienda · Panel</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
   :root{--bg:#f6f4f1;--card:#fff;--ink:#1f1c19;--muted:#7a726a;--line:#e6e0d8;--ok:#2f6b3a;--warn:#a4462f;--chip:#efe9e1}
   *{box-sizing:border-box}
@@ -71,11 +72,11 @@ async function inicio(){
   const { data: ok } = await sb.rpc('es_admin');
   if (!ok){ await sb.auth.signOut(); return login('Esta cuenta no es administradora.'); }
   $('#app').innerHTML = `<header><div class="wrap bar"><h1>Tienda · Panel</h1>
-      <div class="tabs">${['pedidos','productos','ajustes'].map(t => `<button class="tab ${t === tab ? 'on' : ''}" data-t="${t}">${t[0].toUpperCase() + t.slice(1)}</button>`).join('')}</div>
+      <div class="tabs">${['pedidos','productos','clientas','ajustes'].map(t => `<button class="tab ${t === tab ? 'on' : ''}" data-t="${t}">${t[0].toUpperCase() + t.slice(1)}</button>`).join('')}</div>
       <button class="btn sec" id="salir">Salir</button></div></header><main class="wrap" id="main"></main>`;
   document.querySelectorAll('.tab').forEach(b => b.onclick = () => { tab = b.dataset.t; inicio(); });
   $('#salir').onclick = async () => { await sb.auth.signOut(); login(); };
-  ({ pedidos, productos, ajustes })[tab]();
+  ({ pedidos, productos, clientas, ajustes })[tab]();
 }
 
 function login(msg){
@@ -206,6 +207,59 @@ function editar(p){
     }
     toast('Guardado'); productos();
   };
+}
+
+// ---------- clientas ----------
+let busca = '';
+async function clientas(){
+  const M = $('#main');
+  const { count } = await sb.from('tienda_clientas_base').select('id', { count:'exact', head:true });
+  M.innerHTML = `<div class="card"><div class="row"><strong class="sp">${(count || 0).toLocaleString('es-AR')} clientas en la base</strong>
+      <label class="btn sec" style="margin:0;color:var(--ink);font-size:14px">Importar Excel de Empretienda<input type="file" id="imp" accept=".xlsx,.xls,.csv" hidden></label></div>
+      <div class="muted" id="impMsg" style="margin-top:6px">Si importás de nuevo, se actualizan las que ya están (por email). El DNI no se guarda.</div></div>
+    <input id="q" placeholder="Buscar por nombre, email o teléfono" value="${esc(busca)}">
+    <div class="card" style="padding:4px 10px"><table id="tc"></table></div>`;
+  $('#imp').onchange = e => importar(e.target.files[0]);
+  let h; $('#q').oninput = e => { busca = e.target.value; clearTimeout(h); h = setTimeout(listar, 300); };
+  listar();
+}
+async function listar(){
+  let q = sb.from('tienda_clientas_base').select('*').order('nombre').limit(50);
+  const t = busca.trim().replace(/[,()%*]/g, ' ').trim();
+  if (t) q = q.or(`nombre.ilike.%${t}%,apellido.ilike.%${t}%,email.ilike.%${t}%,whatsapp.ilike.%${t.replace(/\D/g, '') || t}%`);
+  const { data, error } = await q;
+  $('#tc').innerHTML = error ? `<tr><td>${esc(em(error))}</td></tr>` : `<tr><th>Nombre</th><th>Email</th><th>WhatsApp</th><th>Localidad</th></tr>` +
+    (data || []).map(c => `<tr><td>${esc(c.nombre)} ${esc(c.apellido)}</td><td>${esc(c.email)}</td>
+      <td>${c.whatsapp ? `<a href="${waLink(c.whatsapp)}" target="_blank" rel="noopener">${esc(c.whatsapp)}</a>` : ''}</td><td>${esc(c.ciudad)}</td></tr>`).join('') +
+    ((data || []).length === 50 ? '<tr><td colspan="4" class="muted">Mostrando 50. Buscá para filtrar.</td></tr>' : '');
+}
+async function importar(file){
+  if (!file) return;
+  const msg = $('#impMsg');
+  try {
+    msg.textContent = 'Leyendo archivo…';
+    const wb = XLSX.read(await file.arrayBuffer());
+    const filas = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval:'' });
+    const txt = v => String(v ?? '').trim() || null;
+    const porEmail = new Map();
+    for (const f of filas){
+      const email = String(f['Email'] || '').trim().toLowerCase();
+      if (!email.includes('@')) continue;
+      const dir = [txt(f['Dirección']), txt(f['Número'])].filter(Boolean).join(' ');
+      const pd = [txt(f['Piso']) && 'Piso ' + txt(f['Piso']), txt(f['Dpto']) && 'Dto ' + txt(f['Dpto'])].filter(Boolean).join(' ');
+      porEmail.set(email, { email, nombre: txt(f['Nombre']), apellido: txt(f['Apellido']),
+        whatsapp: String(f['Teléfono'] || '').replace(/\D/g, '') || null,
+        direccion: [dir, pd].filter(Boolean).join(', ') || null, ciudad: txt(f['Ciudad']), provincia: txt(f['Provincia']) });
+    }
+    const todas = [...porEmail.values()];
+    if (!todas.length) throw new Error('No encontré la columna Email. ¿Es el Excel de clientes de Empretienda?');
+    for (let i = 0; i < todas.length; i += 500){
+      msg.textContent = `Importando ${Math.min(i + 500, todas.length)} de ${todas.length}…`;
+      const { error } = await sb.from('tienda_clientas_base').upsert(todas.slice(i, i + 500), { onConflict:'email' });
+      if (error) throw error;
+    }
+    toast(`${todas.length} clientas importadas`); clientas();
+  } catch (e) { msg.textContent = 'Error: ' + em(e); }
 }
 
 // ---------- ajustes ----------
