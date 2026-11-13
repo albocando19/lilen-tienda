@@ -1,0 +1,435 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lilen Márquez · Tienda</title>
+<meta name="description" content="Tienda online de Lilen Márquez Indumentaria">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root{
+    --bg:#faf8f5; --card:#fff; --ink:#1f1c19; --muted:#7a726a; --line:#e8e2da;
+    --accent:#1f1c19; --accent-ink:#fff; --ok:#2f6b3a; --warn:#a4462f; --chip:#f1ece5;
+    --r:14px;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 Inter,system-ui,sans-serif}
+  h1,h2,h3{font-family:"Cormorant Garamond",Georgia,serif;font-weight:600;margin:0}
+  button,input,select,textarea{font:inherit;color:inherit}
+  a{color:inherit}
+  .wrap{max-width:1100px;margin:0 auto;padding:0 16px}
+
+  header{position:sticky;top:0;z-index:20;background:rgba(250,248,245,.92);backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
+  .bar{display:flex;align-items:center;gap:12px;height:64px}
+  .logo{font-size:26px;letter-spacing:.5px;flex:1}
+  .icon-btn{background:none;border:1px solid var(--line);border-radius:999px;height:40px;padding:0 14px;cursor:pointer;display:flex;align-items:center;gap:6px}
+  .badge{background:var(--accent);color:var(--accent-ink);border-radius:999px;font-size:12px;min-width:20px;height:20px;display:inline-grid;place-items:center;padding:0 6px}
+
+  .chips{display:flex;gap:8px;overflow-x:auto;padding:16px 0 4px}
+  .chip{border:1px solid var(--line);background:var(--card);border-radius:999px;padding:6px 14px;cursor:pointer;white-space:nowrap}
+  .chip.on{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:16px;padding:16px 0 48px}
+  @media(min-width:700px){.grid{grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:22px}}
+  .prod{background:none;border:0;padding:0;text-align:left;cursor:pointer}
+  .ph{aspect-ratio:3/4;background:var(--chip);border-radius:var(--r);overflow:hidden;position:relative}
+  .ph img{width:100%;height:100%;object-fit:cover;display:block}
+  .ph .tag{position:absolute;top:10px;left:10px;background:var(--card);border-radius:999px;font-size:12px;padding:3px 10px}
+  .prod h3{font-size:19px;margin-top:10px;line-height:1.2}
+  .price{font-weight:600}
+  .old{color:var(--muted);text-decoration:line-through;font-weight:400;margin-left:6px;font-size:13px}
+  .empty{color:var(--muted);text-align:center;padding:60px 0}
+
+  .overlay{position:fixed;inset:0;background:rgba(20,16,12,.45);z-index:40;display:none}
+  .overlay.open{display:block}
+  .sheet{position:fixed;z-index:50;background:var(--bg);display:none;flex-direction:column;overflow:hidden}
+  .sheet.open{display:flex}
+  .drawer{top:0;right:0;bottom:0;width:min(440px,100%)}
+  .modal{left:50%;top:50%;transform:translate(-50%,-50%);width:min(920px,calc(100% - 24px));max-height:calc(100% - 24px);border-radius:18px}
+  @media(max-width:699px){.modal{left:0;right:0;bottom:0;top:auto;transform:none;width:100%;max-height:92%;border-radius:18px 18px 0 0}}
+  .sheet-head{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--line)}
+  .sheet-head h2{font-size:24px}
+  .sheet-body{overflow-y:auto;padding:16px;flex:1}
+  .sheet-foot{border-top:1px solid var(--line);padding:16px}
+  .x{background:none;border:0;font-size:26px;cursor:pointer;line-height:1;padding:4px 8px}
+
+  .pd{display:grid;gap:20px}
+  @media(min-width:700px){.pd{grid-template-columns:1.1fr 1fr}}
+  .gal{display:flex;overflow-x:auto;scroll-snap-type:x mandatory;gap:8px;border-radius:var(--r)}
+  .gal img,.gal .noimg{scroll-snap-align:start;flex:0 0 100%;aspect-ratio:3/4;object-fit:cover;border-radius:var(--r);background:var(--chip)}
+  .pd h2{font-size:30px;line-height:1.1}
+  .desc{color:var(--muted);white-space:pre-line}
+  .sizes{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0 4px}
+  .size{min-width:52px;height:44px;border:1px solid var(--line);background:var(--card);border-radius:10px;cursor:pointer;padding:0 10px}
+  .size.on{border-color:var(--ink);box-shadow:inset 0 0 0 1px var(--ink)}
+  .size:disabled{opacity:.35;cursor:not-allowed;text-decoration:line-through}
+  .hint{font-size:13px;color:var(--muted)}
+
+  .btn{display:block;width:100%;border:0;border-radius:12px;height:50px;background:var(--accent);color:var(--accent-ink);font-weight:600;cursor:pointer}
+  .btn:disabled{opacity:.45;cursor:not-allowed}
+  .btn.ghost{background:var(--card);color:var(--ink);border:1px solid var(--line)}
+  .btn.wa{background:#1f8a4c}
+  .link{background:none;border:0;text-decoration:underline;cursor:pointer;color:var(--muted);padding:0}
+
+  .line{display:flex;gap:12px;padding:12px 0;border-bottom:1px solid var(--line)}
+  .line img,.line .noimg{width:64px;height:84px;object-fit:cover;border-radius:10px;background:var(--chip);flex:none}
+  .line .info{flex:1;min-width:0}
+  .qty{display:inline-flex;align-items:center;border:1px solid var(--line);border-radius:999px;margin-top:6px}
+  .qty button{background:none;border:0;width:32px;height:30px;cursor:pointer;font-size:16px}
+  .tot{display:flex;justify-content:space-between;font-size:18px;font-weight:600;margin-bottom:12px}
+
+  label{display:block;font-size:13px;color:var(--muted);margin:12px 0 4px}
+  input,select,textarea{width:100%;border:1px solid var(--line);border-radius:10px;background:var(--card);padding:11px 12px}
+  textarea{min-height:70px;resize:vertical}
+  .seg{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .seg button{height:44px;border:1px solid var(--line);border-radius:10px;background:var(--card);cursor:pointer}
+  .seg button.on{border-color:var(--ink);box-shadow:inset 0 0 0 1px var(--ink)}
+
+  .box{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:14px;margin:12px 0}
+  .row{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:4px 0}
+  .copy{border:1px solid var(--line);background:var(--bg);border-radius:8px;padding:4px 10px;cursor:pointer;font-size:13px}
+  .err{background:#fbeae5;color:var(--warn);border-radius:10px;padding:10px 12px;margin:10px 0;display:none}
+  .state{display:inline-block;border-radius:999px;padding:2px 10px;font-size:12px;background:var(--chip)}
+  .state.pagado,.state.enviado,.state.entregado{background:#e3f0e5;color:var(--ok)}
+  .state.cancelado,.state.vencido{background:#fbeae5;color:var(--warn)}
+  .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--ink);color:#fff;border-radius:999px;padding:10px 18px;z-index:60;display:none}
+  footer{border-top:1px solid var(--line);color:var(--muted);font-size:13px;padding:24px 0;text-align:center}
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap bar">
+    <div class="logo" id="logo">Lilen Márquez</div>
+    <button class="icon-btn" id="btnCuenta" type="button">Mi cuenta</button>
+    <button class="icon-btn" id="btnCarrito" type="button">Carrito <span class="badge" id="cartCount">0</span></button>
+  </div>
+</header>
+
+<main class="wrap">
+  <div class="chips" id="chips"></div>
+  <div class="grid" id="grid"><div class="empty">Cargando…</div></div>
+</main>
+<footer class="wrap">
+  Pagás por transferencia y nos mandás el comprobante por WhatsApp. ·
+  <button class="link" id="btnPrivacidad" type="button">Privacidad</button>
+</footer>
+
+<div class="overlay" id="overlay"></div>
+
+<!-- Producto -->
+<section class="sheet modal" id="mProd" aria-modal="true" role="dialog">
+  <div class="sheet-head"><span></span><button class="x" data-close>&times;</button></div>
+  <div class="sheet-body" id="prodBody"></div>
+</section>
+
+<!-- Carrito / checkout / confirmación -->
+<section class="sheet drawer" id="mCart" aria-modal="true" role="dialog">
+  <div class="sheet-head"><h2 id="cartTitle">Tu carrito</h2><button class="x" data-close>&times;</button></div>
+  <div class="sheet-body" id="cartBody"></div>
+  <div class="sheet-foot" id="cartFoot"></div>
+</section>
+
+<!-- Cuenta -->
+<section class="sheet drawer" id="mCuenta" aria-modal="true" role="dialog">
+  <div class="sheet-head"><h2>Mi cuenta</h2><button class="x" data-close>&times;</button></div>
+  <div class="sheet-body" id="cuentaBody"></div>
+</section>
+
+<!-- Pedido por link -->
+<section class="sheet modal" id="mPedido" aria-modal="true" role="dialog">
+  <div class="sheet-head"><h2>Tu pedido</h2><button class="x" data-close>&times;</button></div>
+  <div class="sheet-body" id="pedidoBody"></div>
+</section>
+
+<!-- Privacidad -->
+<section class="sheet modal" id="mPriv" aria-modal="true" role="dialog">
+  <div class="sheet-head"><h2>Privacidad</h2><button class="x" data-close>&times;</button></div>
+  <div class="sheet-body">
+    <p>Usamos tus datos (nombre, WhatsApp, email y dirección) solo para gestionar tus pedidos y comunicarnos con vos sobre ellos. No los compartimos con terceros.</p>
+    <p>Podés pedirnos ver, corregir o borrar tus datos cuando quieras escribiéndonos por WhatsApp. Ley 25.326 de Protección de Datos Personales.</p>
+  </div>
+</section>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const SUPABASE_URL = 'https://jqqtjygmdoadofarnbco.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_5fSvvUgb3kU5zIxmQFWJHg_CKP508Do';
+// storageKey propio: la sesión de la tienda no pisa la de la caja aunque estén en el mismo dominio
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY, { auth: { storageKey: 'lilen-tienda-auth' } });
+
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const plata = n => new Intl.NumberFormat('es-AR', { style:'currency', currency:'ARS', maximumFractionDigits:0 }).format(n || 0);
+const store = {
+  get(k, d){ try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } },
+  set(k, v){ try { localStorage.setItem(k, JSON.stringify(v)); } catch {} }
+};
+function toast(msg){ const t = $('#toast'); t.textContent = msg; t.style.display = 'block'; clearTimeout(t._h); t._h = setTimeout(() => t.style.display = 'none', 2200); }
+function errMsg(e){ return (e && (e.message || e.error_description)) || 'Algo salió mal, probá de nuevo'; }
+const ESTADOS = { pendiente:'Esperando pago', pagado:'Pago confirmado', enviado:'Enviado', entregado:'Entregado', cancelado:'Cancelado', vencido:'Vencido' };
+
+let cfg = {}, productos = [], cat = 'Todo', session = null;
+let cart = store.get('lilen-carrito', []); // [{variante_id, cant}]
+
+// ---------- modales ----------
+let abierto = null;
+function abrir(id){ cerrar(); abierto = $(id); abierto.classList.add('open'); $('#overlay').classList.add('open'); document.body.style.overflow = 'hidden'; }
+function cerrar(){ if (abierto) abierto.classList.remove('open'); abierto = null; $('#overlay').classList.remove('open'); document.body.style.overflow = ''; }
+$('#overlay').onclick = cerrar;
+document.querySelectorAll('[data-close]').forEach(b => b.onclick = cerrar);
+document.addEventListener('keydown', e => { if (e.key === 'Escape') cerrar(); });
+
+// ---------- datos ----------
+async function cargar(){
+  sb.rpc('tienda_liberar_vencidos').then(() => {}, () => {});
+  const [c, p] = await Promise.all([
+    sb.from('tienda_config').select('*').eq('id', 1).maybeSingle(),
+    sb.from('tienda_productos').select('*, tienda_variantes(*)').order('orden').order('creado', { ascending:false })
+  ]);
+  if (p.error){ $('#grid').innerHTML = '<div class="empty">No pudimos cargar la tienda. Probá en un rato.</div>'; return; }
+  cfg = c.data || {};
+  if (cfg.nombre_tienda){ $('#logo').textContent = cfg.nombre_tienda; document.title = cfg.nombre_tienda + ' · Tienda'; }
+  productos = (p.data || []).map(x => ({ ...x, vars: (x.tienda_variantes || []).sort((a,b) => a.id - b.id) }));
+  pintarChips(); pintarGrid(); limpiarCarrito(); contar();
+}
+function stockTotal(p){ return p.vars.reduce((s, v) => s + v.stock, 0); }
+function varPorId(id){ for (const p of productos){ const v = p.vars.find(v => v.id === id); if (v) return { p, v }; } return null; }
+function foto(p, i = 0){ return (p.fotos && p.fotos[i]) || ''; }
+
+function pintarChips(){
+  const cats = ['Todo', ...new Set(productos.map(p => p.categoria).filter(Boolean))];
+  $('#chips').style.display = cats.length > 2 ? 'flex' : 'none';
+  $('#chips').innerHTML = cats.map(c => `<button class="chip ${c === cat ? 'on' : ''}" data-c="${esc(c)}">${esc(c)}</button>`).join('');
+  $('#chips').querySelectorAll('.chip').forEach(b => b.onclick = () => { cat = b.dataset.c; pintarChips(); pintarGrid(); });
+}
+function pintarGrid(){
+  const lista = productos.filter(p => cat === 'Todo' || p.categoria === cat);
+  if (!lista.length){ $('#grid').innerHTML = '<div class="empty">Todavía no hay productos cargados.</div>'; return; }
+  $('#grid').innerHTML = lista.map(p => {
+    const sin = stockTotal(p) === 0;
+    return `<button class="prod" data-id="${p.id}">
+      <div class="ph">${foto(p) ? `<img src="${esc(foto(p))}" alt="${esc(p.nombre)}" loading="lazy">` : ''}
+        ${sin ? '<span class="tag">Sin stock</span>' : (p.precio_anterior > p.precio ? '<span class="tag">Oferta</span>' : '')}</div>
+      <h3>${esc(p.nombre)}</h3>
+      <div class="price">${plata(p.precio)}${p.precio_anterior > p.precio ? `<span class="old">${plata(p.precio_anterior)}</span>` : ''}</div>
+    </button>`;
+  }).join('');
+  $('#grid').querySelectorAll('.prod').forEach(b => b.onclick = () => verProducto(+b.dataset.id));
+}
+
+// ---------- producto ----------
+function verProducto(id){
+  const p = productos.find(x => x.id === id); if (!p) return;
+  let sel = p.vars.length === 1 && p.vars[0].stock > 0 ? p.vars[0].id : null;
+  const fotos = (p.fotos || []).length ? p.fotos : [''];
+  const pintar = () => {
+    const v = p.vars.find(v => v.id === sel);
+    $('#prodBody').innerHTML = `<div class="pd">
+      <div class="gal">${fotos.map(f => f ? `<img src="${esc(f)}" alt="${esc(p.nombre)}">` : '<div class="noimg"></div>').join('')}</div>
+      <div>
+        <h2>${esc(p.nombre)}</h2>
+        <p class="price" style="font-size:20px;margin:6px 0 12px">${plata(p.precio)}${p.precio_anterior > p.precio ? `<span class="old">${plata(p.precio_anterior)}</span>` : ''}</p>
+        ${p.vars.length ? `<label>Talle${p.vars.some(v => v.color) ? ' / color' : ''}</label>
+        <div class="sizes">${p.vars.map(v => `<button class="size ${v.id === sel ? 'on' : ''}" data-v="${v.id}" ${v.stock ? '' : 'disabled'}>${esc(v.talle)}${v.color ? ' · ' + esc(v.color) : ''}</button>`).join('')}</div>
+        <div class="hint">${v ? (v.stock <= 2 ? `¡Quedan ${v.stock}!` : 'Hay stock') : (stockTotal(p) ? 'Elegí un talle' : 'Sin stock por ahora')}</div>` : '<p class="hint">Sin stock por ahora</p>'}
+        <div style="margin:16px 0"><button class="btn" id="add" ${v ? '' : 'disabled'}>Agregar al carrito</button></div>
+        ${p.descripcion ? `<p class="desc">${esc(p.descripcion)}</p>` : ''}
+      </div></div>`;
+    $('#prodBody').querySelectorAll('.size').forEach(b => b.onclick = () => { sel = +b.dataset.v; pintar(); });
+    const add = $('#add'); if (add) add.onclick = () => { agregar(sel); cerrar(); toast('Agregado al carrito'); };
+  };
+  pintar(); abrir('#mProd');
+}
+
+// ---------- carrito ----------
+function guardarCarrito(){ store.set('lilen-carrito', cart); contar(); }
+function contar(){ $('#cartCount').textContent = cart.reduce((s, i) => s + i.cant, 0); }
+function limpiarCarrito(){ cart = cart.filter(i => { const x = varPorId(i.variante_id); return x && x.v.stock > 0; }).map(i => ({ ...i, cant: Math.min(i.cant, varPorId(i.variante_id).v.stock, 5) })); guardarCarrito(); }
+function agregar(vid){
+  const x = varPorId(vid); const it = cart.find(i => i.variante_id === vid);
+  if (it){ if (it.cant >= Math.min(5, x.v.stock)) return toast('No hay más stock de ese talle'); it.cant++; }
+  else cart.push({ variante_id: vid, cant: 1 });
+  guardarCarrito();
+}
+function totalCarrito(){ return cart.reduce((s, i) => { const x = varPorId(i.variante_id); return s + (x ? x.p.precio * i.cant : 0); }, 0); }
+
+function verCarrito(){
+  $('#cartTitle').textContent = 'Tu carrito';
+  if (!cart.length){
+    $('#cartBody').innerHTML = '<div class="empty">Tu carrito está vacío</div>';
+    $('#cartFoot').innerHTML = '<button class="btn ghost" data-close>Seguir mirando</button>';
+    $('#cartFoot').querySelector('[data-close]').onclick = cerrar;
+  } else {
+    $('#cartBody').innerHTML = cart.map((i, k) => { const { p, v } = varPorId(i.variante_id); return `<div class="line">
+      ${foto(p) ? `<img src="${esc(foto(p))}" alt="">` : '<div class="noimg"></div>'}
+      <div class="info"><div>${esc(p.nombre)}</div><div class="hint">Talle ${esc(v.talle)}${v.color ? ' · ' + esc(v.color) : ''}</div>
+        <div class="qty"><button data-k="${k}" data-d="-1">−</button><span>${i.cant}</span><button data-k="${k}" data-d="1">+</button></div></div>
+      <div class="price">${plata(p.precio * i.cant)}</div></div>`; }).join('');
+    $('#cartBody').querySelectorAll('.qty button').forEach(b => b.onclick = () => {
+      const it = cart[+b.dataset.k]; const { v } = varPorId(it.variante_id);
+      it.cant += +b.dataset.d;
+      if (it.cant > Math.min(5, v.stock)){ it.cant--; toast('No hay más stock de ese talle'); }
+      if (it.cant < 1) cart.splice(+b.dataset.k, 1);
+      guardarCarrito(); verCarrito();
+    });
+    $('#cartFoot').innerHTML = `<div class="tot"><span>Total</span><span>${plata(totalCarrito())}</span></div><button class="btn" id="goCheckout">Finalizar pedido</button>`;
+    $('#goCheckout').onclick = checkout;
+  }
+  if (abierto !== $('#mCart')) abrir('#mCart');
+}
+
+// ---------- checkout ----------
+async function checkout(){
+  $('#cartTitle').textContent = 'Tus datos';
+  let pre = store.get('lilen-datos', {});
+  if (session){
+    const { data } = await sb.from('tienda_clientes').select('*').eq('id', session.user.id).maybeSingle();
+    if (data) pre = { ...pre, nombre: data.nombre, whatsapp: data.whatsapp, direccion: data.direccion };
+    pre.email = session.user.email;
+  }
+  let entrega = pre.entrega || 'retiro';
+  $('#cartBody').innerHTML = `
+    ${session ? '' : `<p class="hint">¿Ya tenés cuenta? <button class="link" id="ckLogin">Ingresá</button> para ver tus pedidos después. Si no, podés comprar igual.</p>`}
+    <label for="fNom">Nombre y apellido</label><input id="fNom" autocomplete="name" value="${esc(pre.nombre)}">
+    <label for="fWa">WhatsApp</label><input id="fWa" inputmode="tel" autocomplete="tel" placeholder="11 2345 6789" value="${esc(pre.whatsapp)}">
+    <label for="fMail">Email (opcional)</label><input id="fMail" type="email" autocomplete="email" value="${esc(pre.email)}" ${session ? 'readonly' : ''}>
+    <label>Entrega</label>
+    <div class="seg"><button type="button" data-e="retiro">Retiro en el local</button><button type="button" data-e="envio">Envío</button></div>
+    <div id="dirBox"><label for="fDir">Dirección (calle, número, localidad, CP)</label><textarea id="fDir" autocomplete="street-address">${esc(pre.direccion)}</textarea>
+      ${cfg.nota_envio ? `<p class="hint">${esc(cfg.nota_envio)}</p>` : '<p class="hint">El costo de envío lo coordinamos por WhatsApp.</p>'}</div>
+    <label for="fNotas">Notas (opcional)</label><textarea id="fNotas"></textarea>
+    <div class="err" id="ckErr"></div>`;
+  const pintarSeg = () => { $('#cartBody').querySelectorAll('.seg button').forEach(b => b.classList.toggle('on', b.dataset.e === entrega)); $('#dirBox').style.display = entrega === 'envio' ? 'block' : 'none'; };
+  $('#cartBody').querySelectorAll('.seg button').forEach(b => b.onclick = () => { entrega = b.dataset.e; pintarSeg(); });
+  pintarSeg();
+  const lg = $('#ckLogin'); if (lg) lg.onclick = verCuenta;
+  $('#cartFoot').innerHTML = `<div class="tot"><span>Total</span><span>${plata(totalCarrito())}</span></div>
+    <button class="btn" id="confirmar">Confirmar pedido</button>
+    <div style="text-align:center;margin-top:10px"><button class="link" id="volver">Volver al carrito</button></div>`;
+  $('#volver').onclick = verCarrito;
+  $('#confirmar').onclick = async () => {
+    const datos = { nombre: $('#fNom').value.trim(), whatsapp: $('#fWa').value.trim(), email: $('#fMail').value.trim(), direccion: $('#fDir').value.trim(), entrega };
+    const err = $('#ckErr'); err.style.display = 'none';
+    if (datos.nombre.length < 2) return mostrarErr('Poné tu nombre');
+    if (datos.whatsapp.replace(/\D/g, '').length < 8) return mostrarErr('Poné un WhatsApp válido');
+    if (entrega === 'envio' && datos.direccion.length < 5) return mostrarErr('Poné la dirección de envío');
+    store.set('lilen-datos', { nombre: datos.nombre, whatsapp: datos.whatsapp, email: datos.email, direccion: datos.direccion, entrega });
+    const b = $('#confirmar'); b.disabled = true; b.textContent = 'Enviando…';
+    const items = cart.map(i => ({ variante_id: i.variante_id, cant: i.cant }));
+    const resumen = cart.map(i => { const { p, v } = varPorId(i.variante_id); return `${i.cant} × ${p.nombre} (talle ${v.talle}${v.color ? ', ' + v.color : ''})`; });
+    const { data, error } = await sb.rpc('tienda_crear_pedido', {
+      p_items: items, p_nombre: datos.nombre, p_whatsapp: datos.whatsapp, p_email: datos.email || null,
+      p_entrega: entrega, p_direccion: entrega === 'envio' ? datos.direccion : null, p_notas: $('#fNotas').value.trim() || null
+    });
+    if (error){ b.disabled = false; b.textContent = 'Confirmar pedido'; cargar(); return mostrarErr(errMsg(error)); }
+    cart = []; guardarCarrito(); cargar();
+    confirmado(data, resumen, datos);
+  };
+  function mostrarErr(m){ const e = $('#ckErr'); e.textContent = m; e.style.display = 'block'; e.scrollIntoView({ block:'nearest' }); }
+}
+
+function linkPedido(token){ return location.origin + location.pathname + '?pedido=' + token; }
+function filaCopia(label, valor){ return valor ? `<div class="row"><div><div class="hint">${label}</div><div>${esc(valor)}</div></div><button class="copy" data-copy="${esc(valor)}">Copiar</button></div>` : ''; }
+function activarCopias(root){ root.querySelectorAll('[data-copy]').forEach(b => b.onclick = async () => { try { await navigator.clipboard.writeText(b.dataset.copy); toast('Copiado'); } catch { toast(b.dataset.copy); } }); }
+function datosPago(total){
+  return `<div class="box"><div class="row"><strong>Total a transferir</strong><strong>${plata(total)}</strong></div>
+    ${filaCopia('Alias', cfg.alias)}${filaCopia('CBU / CVU', cfg.cbu)}${cfg.titular ? `<div class="hint" style="margin-top:6px">Titular: ${esc(cfg.titular)}</div>` : ''}</div>`;
+}
+
+function confirmado(res, resumen, datos){
+  $('#cartTitle').textContent = '¡Pedido reservado!';
+  const vence = new Date(res.vence_en).toLocaleString('es-AR', { weekday:'long', day:'numeric', month:'numeric', hour:'2-digit', minute:'2-digit' });
+  const msg = `¡Hola! Hice el pedido #${res.id} en la tienda:\n${resumen.map(r => '• ' + r).join('\n')}\nTotal: ${plata(res.total)}\nEntrega: ${datos.entrega === 'envio' ? 'envío a ' + datos.direccion : 'retiro en el local'}\nNombre: ${datos.nombre}\n\nTe mando el comprobante 👇\n${linkPedido(res.token)}`;
+  const wa = cfg.whatsapp ? `https://wa.me/${cfg.whatsapp}?text=${encodeURIComponent(msg)}` : null;
+  $('#cartBody').innerHTML = `
+    <p>Pedido <strong>#${res.id}</strong>. Te guardamos las prendas hasta el <strong>${esc(vence)}</strong>.</p>
+    <p><strong>1.</strong> Transferí el total:</p>${datosPago(res.total)}
+    <p><strong>2.</strong> Mandanos el comprobante por WhatsApp con el botón de abajo. El mensaje ya va armado con tu pedido.</p>
+    <p class="hint">Podés ver el estado de tu pedido en cualquier momento desde <a href="${esc(linkPedido(res.token))}">este link</a>.</p>`;
+  activarCopias($('#cartBody'));
+  $('#cartFoot').innerHTML = wa ? `<a class="btn wa" style="display:grid;place-items:center;text-decoration:none" href="${esc(wa)}" target="_blank" rel="noopener">Enviar comprobante por WhatsApp</a>`
+                                : '<p class="hint">Escribinos por WhatsApp con el número de pedido.</p>';
+  if (abierto !== $('#mCart')) abrir('#mCart');
+}
+
+// ---------- pedido por link ----------
+async function verPedidoToken(token){
+  abrir('#mPedido'); $('#pedidoBody').innerHTML = '<p class="hint">Cargando…</p>';
+  const { data, error } = await sb.rpc('tienda_pedido_por_token', { p_token: token });
+  if (error || !data){ $('#pedidoBody').innerHTML = '<p>No encontramos ese pedido.</p>'; return; }
+  $('#pedidoBody').innerHTML = `<p>Pedido <strong>#${data.id}</strong> · <span class="state ${esc(data.estado)}">${ESTADOS[data.estado] || esc(data.estado)}</span></p>
+    ${data.items.map(i => `<div class="row"><span>${i.cant} × ${esc(i.nombre)} <span class="hint">talle ${esc(i.talle)}${i.color ? ' · ' + esc(i.color) : ''}</span></span><span>${plata(i.precio * i.cant)}</span></div>`).join('')}
+    ${data.estado === 'pendiente' ? `<p class="hint" style="margin-top:12px">Te lo guardamos hasta el ${esc(new Date(data.vence_en).toLocaleString('es-AR'))}.</p>${datosPago(data.total)}`
+      : `<div class="tot" style="margin-top:12px"><span>Total</span><span>${plata(data.total)}</span></div>`}`;
+  activarCopias($('#pedidoBody'));
+}
+
+// ---------- cuenta ----------
+async function verCuenta(){
+  abrir('#mCuenta');
+  const B = $('#cuentaBody');
+  if (!session){
+    let modo = 'login';
+    const pintar = () => {
+      B.innerHTML = `<p class="hint">Con tu cuenta ves tus pedidos y no tenés que cargar tus datos cada vez. No es obligatoria para comprar.</p>
+        <label for="aMail">Email</label><input id="aMail" type="email" autocomplete="email">
+        <label for="aPass">Contraseña</label><input id="aPass" type="password" autocomplete="${modo === 'login' ? 'current-password' : 'new-password'}">
+        <div class="err" id="aErr"></div>
+        <div style="margin-top:16px"><button class="btn" id="aGo">${modo === 'login' ? 'Ingresar' : 'Crear cuenta'}</button></div>
+        <p style="text-align:center"><button class="link" id="aSw">${modo === 'login' ? '¿No tenés cuenta? Creala' : 'Ya tengo cuenta'}</button></p>
+        ${modo === 'login' ? '<p style="text-align:center"><button class="link" id="aOlv">Me olvidé la contraseña</button></p>' : ''}`;
+      $('#aSw').onclick = () => { modo = modo === 'login' ? 'alta' : 'login'; pintar(); };
+      const err = m => { const e = $('#aErr'); e.textContent = m; e.style.display = 'block'; };
+      const olv = $('#aOlv'); if (olv) olv.onclick = async () => {
+        const email = $('#aMail').value.trim(); if (!email) return err('Poné tu email arriba');
+        const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: location.origin + location.pathname });
+        error ? err(errMsg(error)) : toast('Te mandamos un mail para cambiarla');
+      };
+      $('#aGo').onclick = async () => {
+        const email = $('#aMail').value.trim(), password = $('#aPass').value;
+        if (!email || password.length < 6) return err('Poné tu email y una contraseña de al menos 6 caracteres');
+        const b = $('#aGo'); b.disabled = true;
+        const r = modo === 'login' ? await sb.auth.signInWithPassword({ email, password })
+                                   : await sb.auth.signUp({ email, password, options: { emailRedirectTo: location.origin + location.pathname } });
+        b.disabled = false;
+        if (r.error) return err(errMsg(r.error));
+        if (modo === 'alta' && !r.data.session){ B.innerHTML = '<p>¡Listo! Te mandamos un mail para confirmar tu cuenta. Abrilo y volvé a ingresar.</p>'; return; }
+        verCuenta();
+      };
+    };
+    pintar(); return;
+  }
+  B.innerHTML = `<p>${esc(session.user.email)}</p><h3 style="font-size:22px;margin:16px 0 4px">Mis pedidos</h3><div id="misPed" class="hint">Cargando…</div>
+    <div style="margin-top:24px"><button class="btn ghost" id="salir">Salir</button></div>`;
+  $('#salir').onclick = async () => { await sb.auth.signOut(); cerrar(); toast('Saliste de tu cuenta'); };
+  const { data } = await sb.from('tienda_pedidos').select('id, token, estado, total, creado').order('creado', { ascending:false }).limit(30);
+  $('#misPed').innerHTML = (data || []).length ? data.map(p => `<div class="row" style="border-bottom:1px solid var(--line);padding:10px 0">
+      <span>#${p.id} · ${new Date(p.creado).toLocaleDateString('es-AR')} <span class="state ${esc(p.estado)}">${ESTADOS[p.estado]}</span></span>
+      <button class="link" data-t="${esc(p.token)}">${plata(p.total)}</button></div>`).join('') : 'Todavía no hiciste pedidos.';
+  $('#misPed').querySelectorAll('[data-t]').forEach(b => b.onclick = () => verPedidoToken(b.dataset.t));
+}
+
+// ---------- arranque ----------
+$('#btnCarrito').onclick = verCarrito;
+$('#btnCuenta').onclick = verCuenta;
+$('#btnPrivacidad').onclick = () => abrir('#mPriv');
+sb.auth.onAuthStateChange((ev, s) => {
+  session = s; $('#btnCuenta').textContent = s ? 'Mis pedidos' : 'Mi cuenta';
+  if (ev === 'PASSWORD_RECOVERY') setTimeout(async () => {
+    const nueva = prompt('Escribí tu nueva contraseña (mínimo 6 caracteres)');
+    if (!nueva) return;
+    const { error } = await sb.auth.updateUser({ password: nueva });
+    toast(error ? errMsg(error) : 'Contraseña actualizada');
+  }, 300);
+});
+sb.auth.getSession().then(({ data }) => { session = data.session; $('#btnCuenta').textContent = session ? 'Mis pedidos' : 'Mi cuenta'; });
+cargar().then(() => {
+  const t = new URLSearchParams(location.search).get('pedido');
+  if (t) verPedidoToken(t);
+});
+</script>
+</body>
+</html>

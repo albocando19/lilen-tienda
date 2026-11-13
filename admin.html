@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Tienda · Panel</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root{--bg:#f6f4f1;--card:#fff;--ink:#1f1c19;--muted:#7a726a;--line:#e6e0d8;--ok:#2f6b3a;--warn:#a4462f;--chip:#efe9e1}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 Inter,system-ui,sans-serif}
+  button,input,select,textarea{font:inherit;color:inherit}
+  .wrap{max-width:1000px;margin:0 auto;padding:0 16px}
+  header{background:var(--card);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5}
+  .bar{display:flex;align-items:center;gap:8px;height:56px}
+  .bar h1{font-size:17px;margin:0;flex:1}
+  .tabs{display:flex;gap:4px;overflow-x:auto}
+  .tab{border:0;background:none;padding:8px 12px;border-radius:8px;cursor:pointer;white-space:nowrap}
+  .tab.on{background:var(--ink);color:#fff}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin:12px 0}
+  .btn{border:0;border-radius:8px;padding:8px 14px;background:var(--ink);color:#fff;cursor:pointer;font-weight:500}
+  .btn.sec{background:var(--card);color:var(--ink);border:1px solid var(--line)}
+  .btn.ok{background:var(--ok)} .btn.danger{background:var(--card);color:var(--warn);border:1px solid #e8c3b8}
+  .btn:disabled{opacity:.5}
+  .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .sp{flex:1}
+  .muted{color:var(--muted)}
+  label{display:block;font-size:12px;color:var(--muted);margin:10px 0 3px}
+  input,select,textarea{width:100%;border:1px solid var(--line);border-radius:8px;padding:9px 10px;background:#fff}
+  textarea{min-height:70px}
+  .g2{display:grid;gap:0 12px;grid-template-columns:1fr}
+  @media(min-width:640px){.g2{grid-template-columns:1fr 1fr}}
+  .state{display:inline-block;border-radius:999px;padding:1px 9px;font-size:12px;background:var(--chip)}
+  .state.pagado,.state.enviado,.state.entregado{background:#e3f0e5;color:var(--ok)}
+  .state.cancelado,.state.vencido{background:#fbeae5;color:var(--warn)}
+  .filters{display:flex;gap:6px;overflow-x:auto;margin:14px 0 4px}
+  .chip{border:1px solid var(--line);background:var(--card);border-radius:999px;padding:5px 12px;cursor:pointer;white-space:nowrap}
+  .chip.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+  table{width:100%;border-collapse:collapse}
+  td,th{padding:6px 4px;border-bottom:1px solid var(--line);text-align:left;vertical-align:middle}
+  th{font-size:12px;color:var(--muted);font-weight:500}
+  td input{padding:6px 8px}
+  .thumb{width:44px;height:56px;object-fit:cover;border-radius:6px;background:var(--chip)}
+  .err{background:#fbeae5;color:var(--warn);border-radius:8px;padding:8px 10px;margin:10px 0;display:none}
+  .toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:var(--ink);color:#fff;border-radius:999px;padding:9px 16px;display:none;z-index:9}
+  .login{max-width:360px;margin:12vh auto}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div class="toast" id="toast"></div>
+<script>
+const sb = supabase.createClient('https://jqqtjygmdoadofarnbco.supabase.co', 'sb_publishable_5fSvvUgb3kU5zIxmQFWJHg_CKP508Do',
+  { auth: { storageKey: 'lilen-tienda-admin-auth' } }); // sesión separada: no pisa la de la caja
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const plata = n => new Intl.NumberFormat('es-AR', { style:'currency', currency:'ARS', maximumFractionDigits:0 }).format(n || 0);
+const fecha = d => new Date(d).toLocaleString('es-AR', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' });
+function toast(m){ const t = $('#toast'); t.textContent = m; t.style.display = 'block'; clearTimeout(t._h); t._h = setTimeout(() => t.style.display = 'none', 2200); }
+const em = e => (e && e.message) || 'Error';
+const ESTADOS = { pendiente:'Esperando pago', pagado:'Pagado', enviado:'Enviado', entregado:'Entregado', cancelado:'Cancelado', vencido:'Vencido' };
+function waLink(n){ let d = String(n).replace(/\D/g, ''); if (d.startsWith('0')) d = d.slice(1); if (!d.startsWith('54')) d = '549' + d; return 'https://wa.me/' + d; }
+
+let tab = 'pedidos', filtro = 'pendiente';
+
+async function inicio(){
+  const { data } = await sb.auth.getSession();
+  if (!data.session) return login();
+  const { data: ok } = await sb.rpc('es_admin');
+  if (!ok){ await sb.auth.signOut(); return login('Esta cuenta no es administradora.'); }
+  $('#app').innerHTML = `<header><div class="wrap bar"><h1>Tienda · Panel</h1>
+      <div class="tabs">${['pedidos','productos','ajustes'].map(t => `<button class="tab ${t === tab ? 'on' : ''}" data-t="${t}">${t[0].toUpperCase() + t.slice(1)}</button>`).join('')}</div>
+      <button class="btn sec" id="salir">Salir</button></div></header><main class="wrap" id="main"></main>`;
+  document.querySelectorAll('.tab').forEach(b => b.onclick = () => { tab = b.dataset.t; inicio(); });
+  $('#salir').onclick = async () => { await sb.auth.signOut(); login(); };
+  ({ pedidos, productos, ajustes })[tab]();
+}
+
+function login(msg){
+  $('#app').innerHTML = `<div class="login card"><h2 style="margin:0 0 6px">Panel de la tienda</h2><p class="muted">Ingresá con tu usuario admin.</p>
+    <label>Email</label><input id="lm" type="email" autocomplete="email"><label>Contraseña</label><input id="lp" type="password" autocomplete="current-password">
+    <div class="err" id="le" style="${msg ? 'display:block' : ''}">${esc(msg || '')}</div><div style="margin-top:14px"><button class="btn" id="lg" style="width:100%">Ingresar</button></div></div>`;
+  $('#lg').onclick = async () => {
+    const { error } = await sb.auth.signInWithPassword({ email: $('#lm').value.trim(), password: $('#lp').value });
+    if (error){ const e = $('#le'); e.textContent = em(error); e.style.display = 'block'; return; }
+    inicio();
+  };
+}
+
+// ---------- pedidos ----------
+async function pedidos(){
+  const M = $('#main');
+  await sb.rpc('tienda_liberar_vencidos');
+  const fs = ['pendiente','pagado','enviado','entregado','vencido','cancelado','todos'];
+  let q = sb.from('tienda_pedidos').select('*, tienda_pedido_items(*)').order('creado', { ascending:false }).limit(100);
+  if (filtro !== 'todos') q = q.eq('estado', filtro);
+  const { data, error } = await q;
+  M.innerHTML = `<div class="filters">${fs.map(f => `<button class="chip ${f === filtro ? 'on' : ''}" data-f="${f}">${f === 'todos' ? 'Todos' : ESTADOS[f]}</button>`).join('')}</div>
+    ${error ? `<div class="card">${esc(em(error))}</div>` : ''}
+    ${(data || []).length ? '' : '<p class="muted" style="padding:30px 0;text-align:center">No hay pedidos acá.</p>'}
+    ${(data || []).map(p => `<div class="card">
+      <div class="row"><strong>#${p.id}</strong><span class="state ${p.estado}">${ESTADOS[p.estado]}</span><span class="muted">${fecha(p.creado)}</span><span class="sp"></span><strong>${plata(p.total)}</strong></div>
+      <div style="margin:8px 0">${esc(p.nombre)} · <a href="${waLink(p.whatsapp)}" target="_blank" rel="noopener">${esc(p.whatsapp)}</a>${p.email ? ' · ' + esc(p.email) : ''}</div>
+      <div class="muted">${p.entrega === 'envio' ? 'Envío: ' + esc(p.direccion) : 'Retira en el local'}${p.notas ? ' · Nota: ' + esc(p.notas) : ''}</div>
+      <ul style="margin:8px 0;padding-left:18px">${p.tienda_pedido_items.map(i => `<li>${i.cant} × ${esc(i.nombre)} · talle ${esc(i.talle)}${i.color ? ' · ' + esc(i.color) : ''} — ${plata(i.precio * i.cant)}</li>`).join('')}</ul>
+      ${p.estado === 'pendiente' ? `<div class="muted" style="font-size:12px;margin-bottom:8px">Se libera el stock el ${fecha(p.vence_en)} si no paga.</div>` : ''}
+      <div class="row">${acciones(p.estado).map(([e, t, c]) => `<button class="btn ${c}" data-p="${p.id}" data-e="${e}">${t}</button>`).join('')}</div>
+    </div>`).join('')}`;
+  M.querySelectorAll('.chip').forEach(b => b.onclick = () => { filtro = b.dataset.f; pedidos(); });
+  M.querySelectorAll('[data-e]').forEach(b => b.onclick = async () => {
+    if (b.dataset.e === 'cancelado' && !confirm('¿Cancelar el pedido #' + b.dataset.p + '? El stock vuelve a estar disponible.')) return;
+    b.disabled = true;
+    const { error } = await sb.rpc('tienda_cambiar_estado', { p_pedido: +b.dataset.p, p_estado: b.dataset.e });
+    if (error){ b.disabled = false; return alert(em(error)); }
+    toast('Pedido #' + b.dataset.p + ': ' + ESTADOS[b.dataset.e]); pedidos();
+  });
+}
+function acciones(e){
+  return ({
+    pendiente: [['pagado','Marcar pagado','ok'], ['cancelado','Cancelar','danger']],
+    pagado:    [['enviado','Marcar enviado',''], ['entregado','Entregado',''], ['cancelado','Cancelar','danger']],
+    enviado:   [['entregado','Entregado','']],
+    vencido:   [['pagado','Pagó tarde: marcar pagado','sec']],
+    cancelado: [['pendiente','Reactivar','sec']],
+    entregado: []
+  })[e] || [];
+}
+
+// ---------- productos ----------
+async function productos(){
+  const M = $('#main');
+  const { data, error } = await sb.from('tienda_productos').select('*, tienda_variantes(*)').order('orden').order('creado', { ascending:false });
+  M.innerHTML = `<div class="row" style="margin:14px 0"><span class="sp muted">${(data || []).length} productos</span><button class="btn" id="nuevo">+ Nuevo producto</button></div>
+    ${error ? `<div class="card">${esc(em(error))}</div>` : ''}
+    <div class="card" style="padding:4px 10px"><table><tr><th></th><th>Producto</th><th>Precio</th><th>Stock</th><th></th></tr>
+    ${(data || []).map(p => { const st = p.tienda_variantes.filter(v => v.activo).reduce((s, v) => s + v.stock, 0); return `<tr>
+      <td>${p.fotos[0] ? `<img class="thumb" src="${esc(p.fotos[0])}" alt="">` : '<div class="thumb"></div>'}</td>
+      <td>${esc(p.nombre)}${p.activo ? '' : ' <span class="state cancelado">oculto</span>'}<div class="muted" style="font-size:12px">${esc(p.categoria || '')}</div></td>
+      <td>${plata(p.precio)}</td><td>${st}</td><td><button class="btn sec" data-id="${p.id}">Editar</button></td></tr>`; }).join('')}
+    </table></div>`;
+  $('#nuevo').onclick = () => editar(null);
+  M.querySelectorAll('[data-id]').forEach(b => b.onclick = () => editar(data.find(p => p.id === +b.dataset.id)));
+}
+
+function editar(p){
+  const M = $('#main');
+  p = p || { nombre:'', descripcion:'', categoria:'', precio:'', precio_anterior:'', fotos:[], activo:true, orden:0, tienda_variantes:[] };
+  let vars = p.tienda_variantes.map(v => ({ ...v }));
+  if (!vars.length) vars.push({ talle:'', color:'', stock:0, activo:true });
+  const borrar = [];
+  const pintarVars = () => {
+    $('#vars').innerHTML = `<tr><th>Talle</th><th>Color (opcional)</th><th>Stock</th><th>Visible</th><th></th></tr>` + vars.map((v, k) => `<tr>
+      <td><input data-k="${k}" data-f="talle" value="${esc(v.talle)}" placeholder="M"></td>
+      <td><input data-k="${k}" data-f="color" value="${esc(v.color)}"></td>
+      <td><input data-k="${k}" data-f="stock" type="number" min="0" value="${v.stock}" style="width:80px"></td>
+      <td><input data-k="${k}" data-f="activo" type="checkbox" ${v.activo ? 'checked' : ''} style="width:auto"></td>
+      <td><button class="btn danger" data-del="${k}">✕</button></td></tr>`).join('');
+    $('#vars').querySelectorAll('input').forEach(i => i.oninput = () => { const v = vars[+i.dataset.k]; v[i.dataset.f] = i.type === 'checkbox' ? i.checked : i.type === 'number' ? Math.max(0, parseInt(i.value || 0)) : i.value; });
+    $('#vars').querySelectorAll('[data-del]').forEach(b => b.onclick = () => { const [v] = vars.splice(+b.dataset.del, 1); if (v.id) borrar.push(v.id); pintarVars(); });
+  };
+  M.innerHTML = `<div class="card"><div class="row"><h2 style="margin:0;font-size:18px" class="sp">${p.id ? 'Editar producto' : 'Nuevo producto'}</h2><button class="btn sec" id="volver">Volver</button></div>
+    <div class="g2"><div><label>Nombre</label><input id="pn" value="${esc(p.nombre)}"></div>
+    <div><label>Categoría</label><input id="pc" value="${esc(p.categoria)}" placeholder="Camperas, Buzos…"></div>
+    <div><label>Precio</label><input id="pp" type="number" min="0" value="${p.precio}"></div>
+    <div><label>Precio anterior (para mostrar oferta, opcional)</label><input id="ppa" type="number" min="0" value="${p.precio_anterior ?? ''}"></div></div>
+    <label>Descripción</label><textarea id="pd">${esc(p.descripcion)}</textarea>
+    <label>Fotos: una por línea (ej. img/campera-negra-1.webp, o un link completo)</label><textarea id="pf">${esc(p.fotos.join('\n'))}</textarea>
+    <div class="g2"><div><label>Orden (menor = aparece primero)</label><input id="po" type="number" value="${p.orden}"></div>
+    <div><label>Visible en la tienda</label><select id="pa"><option value="1" ${p.activo ? 'selected' : ''}>Sí</option><option value="0" ${p.activo ? '' : 'selected'}>No (oculto)</option></select></div></div>
+    <h3 style="font-size:15px;margin:18px 0 4px">Talles y stock</h3>
+    <table id="vars"></table><button class="btn sec" id="addv" style="margin-top:8px">+ Talle</button>
+    <div class="err" id="pe"></div>
+    <div class="row" style="margin-top:16px"><button class="btn" id="guardar">Guardar</button>${p.id ? '<span class="sp"></span><button class="btn danger" id="eliminar">Eliminar producto</button>' : ''}</div></div>`;
+  pintarVars();
+  $('#addv').onclick = () => { vars.push({ talle:'', color:'', stock:0, activo:true }); pintarVars(); };
+  $('#volver').onclick = productos;
+  const err = m => { const e = $('#pe'); e.textContent = m; e.style.display = 'block'; };
+  if (p.id) $('#eliminar').onclick = async () => {
+    if (!confirm('¿Eliminar "' + p.nombre + '"? Si tiene pedidos, mejor ocultalo en vez de eliminarlo.')) return;
+    const { error } = await sb.from('tienda_productos').delete().eq('id', p.id);
+    error ? err(em(error)) : (toast('Eliminado'), productos());
+  };
+  $('#guardar').onclick = async () => {
+    const fila = {
+      nombre: $('#pn').value.trim(), categoria: $('#pc').value.trim() || null, descripcion: $('#pd').value.trim() || null,
+      precio: Number($('#pp').value), precio_anterior: $('#ppa').value ? Number($('#ppa').value) : null,
+      fotos: $('#pf').value.split('\n').map(s => s.trim()).filter(Boolean), orden: parseInt($('#po').value || 0), activo: $('#pa').value === '1'
+    };
+    if (!fila.nombre) return err('Falta el nombre');
+    if (!(fila.precio >= 0) || $('#pp').value === '') return err('Falta el precio');
+    const vs = vars.filter(v => v.talle.trim());
+    const claves = vs.map(v => v.talle.trim().toLowerCase() + '|' + (v.color || '').trim().toLowerCase());
+    if (new Set(claves).size !== claves.length) return err('Hay talles repetidos (mismo talle y color)');
+    $('#guardar').disabled = true;
+    const r = p.id ? await sb.from('tienda_productos').update(fila).eq('id', p.id).select().single()
+                   : await sb.from('tienda_productos').insert(fila).select().single();
+    if (r.error){ $('#guardar').disabled = false; return err(em(r.error)); }
+    const pid = r.data.id;
+    if (borrar.length){ const d = await sb.from('tienda_variantes').delete().in('id', borrar); if (d.error) return err(em(d.error)); }
+    for (const v of vs){
+      const row = { producto_id: pid, talle: v.talle.trim(), color: (v.color || '').trim(), stock: v.stock || 0, activo: !!v.activo };
+      const x = v.id ? await sb.from('tienda_variantes').update(row).eq('id', v.id) : await sb.from('tienda_variantes').insert(row);
+      if (x.error){ $('#guardar').disabled = false; return err(em(x.error)); }
+    }
+    toast('Guardado'); productos();
+  };
+}
+
+// ---------- ajustes ----------
+async function ajustes(){
+  const M = $('#main');
+  const { data: c } = await sb.from('tienda_config').select('*').eq('id', 1).single();
+  M.innerHTML = `<div class="card"><h2 style="margin:0;font-size:18px">Ajustes de la tienda</h2>
+    <div class="g2">
+      <div><label>Nombre de la tienda</label><input id="cn" value="${esc(c.nombre_tienda)}"></div>
+      <div><label>WhatsApp donde llegan los pedidos (con 549, ej. 5491123456789)</label><input id="cw" value="${esc(c.whatsapp)}"></div>
+      <div><label>Alias</label><input id="ca" value="${esc(c.alias)}"></div>
+      <div><label>CBU / CVU</label><input id="cc" value="${esc(c.cbu)}"></div>
+      <div><label>Titular de la cuenta</label><input id="ct" value="${esc(c.titular)}"></div>
+      <div><label>Horas que se guarda un pedido sin pagar</label><input id="ch" type="number" min="1" max="168" value="${c.horas_reserva}"></div>
+    </div>
+    <label>Nota sobre envíos (se muestra al elegir envío)</label><textarea id="ce">${esc(c.nota_envio)}</textarea>
+    <div class="err" id="ce2"></div><div style="margin-top:14px"><button class="btn" id="cg">Guardar</button></div></div>`;
+  $('#cg').onclick = async () => {
+    const wa = $('#cw').value.replace(/\D/g, '');
+    const { error } = await sb.from('tienda_config').update({
+      nombre_tienda: $('#cn').value.trim() || 'Lilen Márquez', whatsapp: wa || null, alias: $('#ca').value.trim() || null,
+      cbu: $('#cc').value.trim() || null, titular: $('#ct').value.trim() || null,
+      horas_reserva: Math.min(168, Math.max(1, parseInt($('#ch').value || 48))), nota_envio: $('#ce').value.trim() || null
+    }).eq('id', 1);
+    if (error){ const e = $('#ce2'); e.textContent = em(error); e.style.display = 'block'; return; }
+    toast('Guardado');
+  };
+}
+
+inicio();
+</script>
+</body>
+</html>
