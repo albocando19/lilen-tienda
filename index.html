@@ -66,6 +66,10 @@
   .filtros{position:sticky;top:62px;z-index:15;background:var(--paper);padding:14px 0 10px;border-bottom:1px solid var(--line)}
   .chips{display:flex;gap:8px;overflow-x:auto;scrollbar-width:none}
   .chips::-webkit-scrollbar{display:none}
+  /* en celu se desliza con el dedo; el borde se desvanece para que se note que hay más */
+  @media(max-width:899px){.chips{-webkit-mask-image:linear-gradient(90deg,#000 85%,transparent);mask-image:linear-gradient(90deg,#000 85%,transparent);padding-right:40px}}
+  /* en compu entran todas: bajan a un segundo renglón si hace falta */
+  @media(min-width:900px){.chips{flex-wrap:wrap;overflow:visible}}
   .chip{flex:none;height:38px;padding:0 16px;border:1px solid var(--line);background:var(--card);border-radius:19px;cursor:pointer;white-space:nowrap}
   .chip[aria-pressed="true"]{background:var(--ink);border-color:var(--ink);color:#fff}
   .resultado{font-size:14px;color:var(--muted);margin:18px 0 0}
