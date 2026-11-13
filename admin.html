@@ -130,19 +130,89 @@ function acciones(e){
 }
 
 // ---------- productos ----------
+let buscaProd = '', soloVisibles = false;
 async function productos(){
   const M = $('#main');
-  const { data, error } = await sb.from('tienda_productos').select('*, tienda_variantes(*)').order('orden').order('creado', { ascending:false });
-  M.innerHTML = `<div class="row" style="margin:14px 0"><span class="sp muted">${(data || []).length} productos</span><button class="btn" id="nuevo">+ Nuevo producto</button></div>
+  const { data, error } = await sb.from('tienda_productos').select('*, tienda_variantes(*)').order('orden').order('creado', { ascending:false }).limit(5000);
+  const t = buscaProd.trim().toLowerCase();
+  const lista = (data || []).filter(p => (!t || (p.nombre + ' ' + (p.categoria || '')).toLowerCase().includes(t)) && (!soloVisibles || p.activo));
+  M.innerHTML = `<div class="row" style="margin:14px 0"><span class="sp muted">${(data || []).length} productos · ${(data || []).filter(p => p.activo).length} visibles</span>
+      <label class="btn sec" style="margin:0;color:var(--ink);font-size:14px">Importar Excel de Empretienda<input type="file" id="impP" accept=".xlsx,.xls" hidden></label>
+      <button class="btn" id="nuevo">+ Nuevo producto</button></div>
+    <div class="muted" id="impPMsg" style="margin-bottom:8px"></div>
+    <div class="row"><input id="qp" placeholder="Buscar producto o categoría" value="${esc(buscaProd)}" style="flex:1;width:auto">
+      <label style="margin:0;display:flex;gap:6px;align-items:center;color:var(--ink)"><input type="checkbox" id="sv" ${soloVisibles ? 'checked' : ''} style="width:auto"> Solo visibles</label></div>
     ${error ? `<div class="card">${esc(em(error))}</div>` : ''}
     <div class="card" style="padding:4px 10px"><table><tr><th></th><th>Producto</th><th>Precio</th><th>Stock</th><th></th></tr>
-    ${(data || []).map(p => { const st = p.tienda_variantes.filter(v => v.activo).reduce((s, v) => s + v.stock, 0); return `<tr>
+    ${lista.slice(0, 200).map(p => { const st = p.tienda_variantes.filter(v => v.activo).reduce((s, v) => s + v.stock, 0); return `<tr>
       <td>${p.fotos[0] ? `<img class="thumb" src="${esc(p.fotos[0])}" alt="">` : '<div class="thumb"></div>'}</td>
-      <td>${esc(p.nombre)}${p.activo ? '' : ' <span class="state cancelado">oculto</span>'}<div class="muted" style="font-size:12px">${esc(p.categoria || '')}</div></td>
+      <td>${esc(p.nombre)}${p.activo ? '' : ' <span class="state cancelado">oculto</span>'}${p.fotos.length ? '' : ' <span class="state">sin foto</span>'}<div class="muted" style="font-size:12px">${esc(p.categoria || '')}</div></td>
       <td>${plata(p.precio)}</td><td>${st}</td><td><button class="btn sec" data-id="${p.id}">Editar</button></td></tr>`; }).join('')}
-    </table></div>`;
+    </table>${lista.length > 200 ? '<p class="muted">Mostrando 200. Buscá para filtrar.</p>' : ''}</div>`;
   $('#nuevo').onclick = () => editar(null);
+  $('#impP').onchange = e => importarProductos(e.target.files[0]);
+  let h; $('#qp').oninput = e => { buscaProd = e.target.value; clearTimeout(h); h = setTimeout(productos, 400); };
+  $('#sv').onchange = e => { soloVisibles = e.target.checked; productos(); };
   M.querySelectorAll('[data-id]').forEach(b => b.onclick = () => editar(data.find(p => p.id === +b.dataset.id)));
+}
+
+async function importarProductos(file){
+  if (!file) return;
+  const msg = $('#impPMsg');
+  if (!confirm('Esto crea o actualiza productos, precios y stock desde el Excel de Empretienda. Las fotos y descripciones que ya cargaste no se tocan. ¿Seguimos?')) return;
+  try {
+    msg.textContent = 'Leyendo archivo…';
+    const wb = XLSX.read(await file.arrayBuffer());
+    const filas = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval:'' });
+    if (!filas.length || !('IDProduct' in filas[0])) throw new Error('No parece el Excel de productos de Empretienda (falta la columna IDProduct)');
+    const prods = new Map();
+    for (const f of filas){
+      const pid = Number(f['IDProduct']); if (!pid) continue;
+      if (!prods.has(pid)) prods.set(pid, { cab: f, vars: new Map() });
+      let talle = '', color = '';
+      for (const i of [1, 2, 3]){
+        const n = String(f['Nombre atributo ' + i] || '').toLowerCase(), val = String(f['Valor atributo ' + i] || '').trim();
+        if (!n && !val) continue;
+        if (n.includes('talle')) talle = val; else color = [color, val].filter(Boolean).join(' ');
+      }
+      talle = talle || 'Único';
+      const clave = talle.toLowerCase() + '|' + color.toLowerCase();
+      const vs = prods.get(pid).vars;
+      const stock = Math.max(0, parseInt(f['Stock'] || 0) || 0), precio = Number(f['Precio']) || 0;
+      if (vs.has(clave)) vs.get(clave).stock += stock;
+      else vs.set(clave, { ext_id: Number(f['IDStock']) || null, talle, color, stock, precio, oferta: Number(f['Precio oferta']) || null });
+    }
+    const filasP = [];
+    for (const [pid, { cab, vars }] of prods){
+      const vs = [...vars.values()];
+      const ofertas = vs.map(v => v.oferta).filter(Boolean);
+      const base = Math.min(...vs.map(v => v.precio));
+      filasP.push({ ext_id: pid, nombre: String(cab['Nombre']).trim().slice(0, 120) || 'Sin nombre',
+        categoria: String(cab['Categorías'] || '').split('>')[0].trim() || null,
+        precio: ofertas.length ? Math.min(...ofertas) : base, precio_anterior: ofertas.length ? base : null,
+        activo: String(cab['Mostrar en tienda']).trim().toLowerCase().startsWith('s') });
+    }
+    const idPorExt = new Map();
+    for (let i = 0; i < filasP.length; i += 200){
+      msg.textContent = `Productos: ${Math.min(i + 200, filasP.length)} de ${filasP.length}…`;
+      const { data, error } = await sb.from('tienda_productos').upsert(filasP.slice(i, i + 200), { onConflict:'ext_id' }).select('id, ext_id');
+      if (error) throw error;
+      data.forEach(d => idPorExt.set(d.ext_id, d.id));
+    }
+    const filasV = [];
+    for (const [pid, { vars }] of prods){
+      const p = filasP.find(x => x.ext_id === pid), vs = [...vars.values()];
+      const base = p.precio_anterior ? null : p.precio;
+      for (const v of vs) filasV.push({ ext_id: v.ext_id, producto_id: idPorExt.get(pid), talle: v.talle.slice(0, 60), color: v.color.slice(0, 60),
+        stock: v.stock, activo: true, precio: base !== null && v.precio !== base ? v.precio : null });
+    }
+    for (let i = 0; i < filasV.length; i += 500){
+      msg.textContent = `Talles y stock: ${Math.min(i + 500, filasV.length)} de ${filasV.length}…`;
+      const { error } = await sb.from('tienda_variantes').upsert(filasV.slice(i, i + 500), { onConflict:'ext_id' });
+      if (error) throw error;
+    }
+    toast(`${filasP.length} productos importados`); productos();
+  } catch (e) { msg.textContent = 'Error: ' + em(e); }
 }
 
 function editar(p){
@@ -152,13 +222,14 @@ function editar(p){
   if (!vars.length) vars.push({ talle:'', color:'', stock:0, activo:true });
   const borrar = [];
   const pintarVars = () => {
-    $('#vars').innerHTML = `<tr><th>Talle</th><th>Color (opcional)</th><th>Stock</th><th>Visible</th><th></th></tr>` + vars.map((v, k) => `<tr>
+    $('#vars').innerHTML = `<tr><th>Talle</th><th>Color / modelo</th><th>Stock</th><th>Precio (si cambia)</th><th>Visible</th><th></th></tr>` + vars.map((v, k) => `<tr>
       <td><input data-k="${k}" data-f="talle" value="${esc(v.talle)}" placeholder="M"></td>
       <td><input data-k="${k}" data-f="color" value="${esc(v.color)}"></td>
       <td><input data-k="${k}" data-f="stock" type="number" min="0" value="${v.stock}" style="width:80px"></td>
+      <td><input data-k="${k}" data-f="precio" type="number" min="0" value="${v.precio ?? ''}" placeholder="—" style="width:100px"></td>
       <td><input data-k="${k}" data-f="activo" type="checkbox" ${v.activo ? 'checked' : ''} style="width:auto"></td>
       <td><button class="btn danger" data-del="${k}">✕</button></td></tr>`).join('');
-    $('#vars').querySelectorAll('input').forEach(i => i.oninput = () => { const v = vars[+i.dataset.k]; v[i.dataset.f] = i.type === 'checkbox' ? i.checked : i.type === 'number' ? Math.max(0, parseInt(i.value || 0)) : i.value; });
+    $('#vars').querySelectorAll('input').forEach(i => i.oninput = () => { const v = vars[+i.dataset.k]; v[i.dataset.f] = i.type === 'checkbox' ? i.checked : i.dataset.f === 'precio' ? (i.value === '' ? null : Math.max(0, Number(i.value))) : i.type === 'number' ? Math.max(0, parseInt(i.value || 0)) : i.value; });
     $('#vars').querySelectorAll('[data-del]').forEach(b => b.onclick = () => { const [v] = vars.splice(+b.dataset.del, 1); if (v.id) borrar.push(v.id); pintarVars(); });
   };
   M.innerHTML = `<div class="card"><div class="row"><h2 style="margin:0;font-size:18px" class="sp">${p.id ? 'Editar producto' : 'Nuevo producto'}</h2><button class="btn sec" id="volver">Volver</button></div>
@@ -201,7 +272,7 @@ function editar(p){
     const pid = r.data.id;
     if (borrar.length){ const d = await sb.from('tienda_variantes').delete().in('id', borrar); if (d.error) return err(em(d.error)); }
     for (const v of vs){
-      const row = { producto_id: pid, talle: v.talle.trim(), color: (v.color || '').trim(), stock: v.stock || 0, activo: !!v.activo };
+      const row = { producto_id: pid, talle: v.talle.trim(), color: (v.color || '').trim(), stock: v.stock || 0, activo: !!v.activo, precio: v.precio ?? null };
       const x = v.id ? await sb.from('tienda_variantes').update(row).eq('id', v.id) : await sb.from('tienda_variantes').insert(row);
       if (x.error){ $('#guardar').disabled = false; return err(em(x.error)); }
     }

@@ -198,6 +198,14 @@ async function cargar(){
 function stockTotal(p){ return p.vars.reduce((s, v) => s + v.stock, 0); }
 function varPorId(id){ for (const p of productos){ const v = p.vars.find(v => v.id === id); if (v) return { p, v }; } return null; }
 function foto(p, i = 0){ return (p.fotos && p.fotos[i]) || ''; }
+function pv(p, v){ return v && v.precio != null ? Number(v.precio) : Number(p.precio); }
+function precioHTML(p, v){
+  if (v) return plata(pv(p, v));
+  const ps = p.vars.filter(x => x.stock > 0).map(x => pv(p, x));
+  const min = ps.length ? Math.min(...ps) : Number(p.precio);
+  const varia = ps.length && Math.max(...ps) !== min;
+  return (varia ? 'Desde ' : '') + plata(min) + (!varia && p.precio_anterior > min ? `<span class="old">${plata(p.precio_anterior)}</span>` : '');
+}
 
 function pintarChips(){
   const cats = ['Todo', ...new Set(productos.map(p => p.categoria).filter(Boolean))];
@@ -214,7 +222,7 @@ function pintarGrid(){
       <div class="ph">${foto(p) ? `<img src="${esc(foto(p))}" alt="${esc(p.nombre)}" loading="lazy">` : ''}
         ${sin ? '<span class="tag">Sin stock</span>' : (p.precio_anterior > p.precio ? '<span class="tag">Oferta</span>' : '')}</div>
       <h3>${esc(p.nombre)}</h3>
-      <div class="price">${plata(p.precio)}${p.precio_anterior > p.precio ? `<span class="old">${plata(p.precio_anterior)}</span>` : ''}</div>
+      <div class="price">${precioHTML(p)}</div>
     </button>`;
   }).join('');
   $('#grid').querySelectorAll('.prod').forEach(b => b.onclick = () => verProducto(+b.dataset.id));
@@ -231,7 +239,7 @@ function verProducto(id){
       <div class="gal">${fotos.map(f => f ? `<img src="${esc(f)}" alt="${esc(p.nombre)}">` : '<div class="noimg"></div>').join('')}</div>
       <div>
         <h2>${esc(p.nombre)}</h2>
-        <p class="price" style="font-size:20px;margin:6px 0 12px">${plata(p.precio)}${p.precio_anterior > p.precio ? `<span class="old">${plata(p.precio_anterior)}</span>` : ''}</p>
+        <p class="price" style="font-size:20px;margin:6px 0 12px">${precioHTML(p, v)}</p>
         ${p.vars.length ? `<label>Talle${p.vars.some(v => v.color) ? ' / color' : ''}</label>
         <div class="sizes">${p.vars.map(v => `<button class="size ${v.id === sel ? 'on' : ''}" data-v="${v.id}" ${v.stock ? '' : 'disabled'}>${esc(v.talle)}${v.color ? ' · ' + esc(v.color) : ''}</button>`).join('')}</div>
         <div class="hint">${v ? (v.stock <= 2 ? `¡Quedan ${v.stock}!` : 'Hay stock') : (stockTotal(p) ? 'Elegí un talle' : 'Sin stock por ahora')}</div>` : '<p class="hint">Sin stock por ahora</p>'}
@@ -254,7 +262,7 @@ function agregar(vid){
   else cart.push({ variante_id: vid, cant: 1 });
   guardarCarrito();
 }
-function totalCarrito(){ return cart.reduce((s, i) => { const x = varPorId(i.variante_id); return s + (x ? x.p.precio * i.cant : 0); }, 0); }
+function totalCarrito(){ return cart.reduce((s, i) => { const x = varPorId(i.variante_id); return s + (x ? pv(x.p, x.v) * i.cant : 0); }, 0); }
 
 function verCarrito(){
   $('#cartTitle').textContent = 'Tu carrito';
@@ -265,9 +273,9 @@ function verCarrito(){
   } else {
     $('#cartBody').innerHTML = cart.map((i, k) => { const { p, v } = varPorId(i.variante_id); return `<div class="line">
       ${foto(p) ? `<img src="${esc(foto(p))}" alt="">` : '<div class="noimg"></div>'}
-      <div class="info"><div>${esc(p.nombre)}</div><div class="hint">Talle ${esc(v.talle)}${v.color ? ' · ' + esc(v.color) : ''}</div>
+      <div class="info"><div>${esc(p.nombre)}</div><div class="hint">${v.talle !== 'Único' ? 'Talle ' + esc(v.talle) : ''}${v.color ? (v.talle !== 'Único' ? ' · ' : '') + esc(v.color) : ''}</div>
         <div class="qty"><button data-k="${k}" data-d="-1">−</button><span>${i.cant}</span><button data-k="${k}" data-d="1">+</button></div></div>
-      <div class="price">${plata(p.precio * i.cant)}</div></div>`; }).join('');
+      <div class="price">${plata(pv(p, v) * i.cant)}</div></div>`; }).join('');
     $('#cartBody').querySelectorAll('.qty button').forEach(b => b.onclick = () => {
       const it = cart[+b.dataset.k]; const { v } = varPorId(it.variante_id);
       it.cant += +b.dataset.d;
