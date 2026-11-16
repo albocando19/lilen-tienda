@@ -69,8 +69,8 @@ let tab = 'pedidos', filtro = 'pendiente';
 async function inicio(){
   const { data } = await sb.auth.getSession();
   if (!data.session) return login();
-  const { data: ok } = await sb.rpc('es_admin');
-  if (!ok){ await sb.auth.signOut(); return login('Esta cuenta no es administradora.'); }
+  const { data: ok } = await sb.rpc('tienda_es_staff');
+  if (!ok){ await sb.auth.signOut(); return login('Esta cuenta no tiene acceso al panel de la tienda.'); }
   $('#app').innerHTML = `<header><div class="wrap bar"><h1>Tienda · Panel</h1>
       <div class="tabs">${['pedidos','productos','clientas','ajustes'].map(t => `<button class="tab ${t === tab ? 'on' : ''}" data-t="${t}">${t[0].toUpperCase() + t.slice(1)}</button>`).join('')}</div>
       <button class="btn sec" id="salir">Salir</button></div></header><main class="wrap" id="main"></main>`;
