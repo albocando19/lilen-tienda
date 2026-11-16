@@ -191,6 +191,17 @@
   .estado.pagado,.estado.enviado,.estado.entregado{background:#E2EDE4;color:var(--leaf)}
   .estado.cancelado,.estado.vencido{background:#FBE7E7;color:var(--warn)}
   .toast{position:fixed;left:50%;top:76px;transform:translateX(-50%);background:var(--ink);color:#fff;border-radius:22px;padding:10px 18px;z-index:60;display:none}
+  /* tienda cerrada momentáneamente */
+  .cierre{position:fixed;inset:0;z-index:100;background:var(--paper);display:flex;align-items:center;justify-content:center;padding:24px 16px;overflow-y:auto}
+  .cierre-in{max-width:520px;text-align:center}
+  .cierre .arco{width:min(210px,52vw);margin:0 auto 26px;transform:none}
+  .cierre h1{margin:0;font:italic 400 clamp(46px,12vw,84px)/.95 var(--display);letter-spacing:-.03em}
+  .cierre p{font-size:18px;color:var(--muted);margin:20px auto 26px;max-width:34ch;white-space:pre-line}
+  .cierre .acciones{display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
+  .cierre .acciones a{display:inline-flex;align-items:center;height:48px;padding:0 22px;border-radius:24px;text-decoration:none;font-weight:500}
+  .cierre .ig{background:var(--peony);color:#fff}
+  .cierre .wa{border:1px solid var(--ink)}
+  .aviso-interno{position:sticky;top:0;z-index:30;background:var(--peony);color:#fff;text-align:center;font-size:14px;padding:8px 16px}
 </style>
 </head>
 <body>
@@ -327,10 +338,29 @@ async function cargar(){
   ]);
   if (p.error){ $('#grid').innerHTML = '<div class="vacio">No pudimos cargar los productos. Revisá tu conexión y recargá la página.</div>'; return; }
   cfg = c.data || {};
+  const vistaPrevia = new URLSearchParams(location.search).get('vista') === 'cierre';
+  if (cfg.cerrada || vistaPrevia){
+    const fotoCierre = (p.data || []).find(x => x.fotos && x.fotos.length)?.fotos[0];
+    if (vistaPrevia || !equipoLogueado()) return mostrarCierre(fotoCierre);
+    // Vos, Ori o las chicas con el panel abierto en este navegador ven la tienda para organizarla
+    document.body.insertAdjacentHTML('afterbegin', '<div class="aviso-interno">La tienda está cerrada al público. Esto lo ven solo ustedes porque tienen el panel abierto.</div>');
+  }
   pintarConfig();
   productos = (p.data || []).map(x => ({ ...x, vars: (x.tienda_variantes || []).sort((a, b) => a.id - b.id) }))
     .sort((a, b) => (stockTotal(b) > 0) - (stockTotal(a) > 0)); // con stock primero
   pintarArcos(); pintarChips(); pintarGrid(); limpiarCarrito(); contar();
+}
+// ¿Hay alguien del equipo con sesión en el panel (admin.html) en este navegador?
+function equipoLogueado(){ try { const x = JSON.parse(localStorage.getItem('lilen-tienda-admin-auth')); return !!(x && x.access_token); } catch { return false; } }
+function mostrarCierre(fotoUrl){
+  const ig = cfg.instagram ? `<a class="ig" href="https://instagram.com/${encodeURIComponent(cfg.instagram)}" target="_blank" rel="noopener">Seguinos en Instagram</a>` : '';
+  const wa = waUrl() ? `<a class="wa" href="${esc(waUrl())}" target="_blank" rel="noopener">Escribinos por WhatsApp</a>` : '';
+  document.body.insertAdjacentHTML('beforeend', `<div class="cierre" role="dialog" aria-label="Tienda en actualización"><div class="cierre-in">
+    <div class="arco">${fotoUrl ? `<img src="${esc(fotoUrl)}" alt="">` : ''}</div>
+    <h1>Lilén Márquez</h1>
+    <p>${esc(cfg.mensaje_cierre || 'Estamos actualizando la página para darte un mejor servicio. ¡Volvemos muy pronto!')}</p>
+    <div class="acciones">${ig}${wa}</div></div></div>`);
+  document.body.style.overflow = 'hidden';
 }
 function stockTotal(p){ return p.vars.reduce((s, v) => s + v.stock, 0); }
 function varPorId(id){ for (const p of productos){ const v = p.vars.find(v => v.id === id); if (v) return { p, v }; } return null; }

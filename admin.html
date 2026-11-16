@@ -64,16 +64,20 @@ const em = e => (e && e.message) || 'Error';
 const ESTADOS = { pendiente:'Esperando pago', pagado:'Pagado', enviado:'Enviado', entregado:'Entregado', cancelado:'Cancelado', vencido:'Vencido' };
 function waLink(n){ let d = String(n).replace(/\D/g, ''); if (d.startsWith('0')) d = d.slice(1); if (!d.startsWith('54')) d = '549' + d; return 'https://wa.me/' + d; }
 
-let tab = 'pedidos', filtro = 'pendiente';
+let tab = 'pedidos', filtro = 'pendiente', soyAdmin = false;
 
 async function inicio(){
   const { data } = await sb.auth.getSession();
   if (!data.session) return login();
   const { data: ok } = await sb.rpc('tienda_es_staff');
   if (!ok){ await sb.auth.signOut(); return login('Esta cuenta no tiene acceso al panel de la tienda.'); }
+  const [{ data: adm }, { data: est }] = await Promise.all([sb.rpc('es_admin'), sb.from('tienda_config').select('cerrada').eq('id', 1).single()]);
+  soyAdmin = !!adm;
   $('#app').innerHTML = `<header><div class="wrap bar"><h1>Tienda · Panel</h1>
       <div class="tabs">${['pedidos','productos','clientas','ajustes'].map(t => `<button class="tab ${t === tab ? 'on' : ''}" data-t="${t}">${t[0].toUpperCase() + t.slice(1)}</button>`).join('')}</div>
-      <button class="btn sec" id="salir">Salir</button></div></header><main class="wrap" id="main"></main>`;
+      <button class="btn sec" id="salir">Salir</button></div></header>
+    ${est && est.cerrada ? '<div style="background:#B0275F;color:#fff;text-align:center;padding:8px 16px;font-size:14px">La tienda está <strong>cerrada al público</strong>. Las clientas ven el cartel de "estamos actualizando".</div>' : ''}
+    <main class="wrap" id="main"></main>`;
   document.querySelectorAll('.tab').forEach(b => b.onclick = () => { tab = b.dataset.t; inicio(); });
   $('#salir').onclick = async () => { await sb.auth.signOut(); login(); };
   ({ pedidos, productos, clientas, ajustes })[tab]();
@@ -337,7 +341,18 @@ async function importar(file){
 async function ajustes(){
   const M = $('#main');
   const { data: c } = await sb.from('tienda_config').select('*').eq('id', 1).single();
-  M.innerHTML = `<div class="card"><h2 style="margin:0;font-size:18px">Ajustes de la tienda</h2>
+  // El interruptor de abrir/cerrar solo lo ven los admins (Beto y Ori). La base también lo bloquea para el resto.
+  const bloqueCierre = soyAdmin ? `<div class="card" style="border-color:${c.cerrada ? '#B0275F' : 'var(--line)'}">
+      <div class="row"><h2 style="margin:0;font-size:18px" class="sp">Estado de la tienda</h2>
+        <span class="state ${c.cerrada ? 'cancelado' : 'pagado'}">${c.cerrada ? 'Cerrada al público' : 'Abierta'}</span></div>
+      <p class="muted" style="margin:8px 0 0">${c.cerrada ? 'Las clientas ven el cartel de abajo y no pueden comprar. Ustedes, con el panel abierto, siguen viendo la tienda.' : 'Si la cerrás, las clientas ven un cartel y no pueden hacer pedidos. Los pedidos ya hechos no se tocan.'}</p>
+      <label>Mensaje que ven las clientas</label><textarea id="cmsg">${esc(c.mensaje_cierre)}</textarea>
+      <div class="row" style="margin-top:12px">
+        <button class="btn ${c.cerrada ? 'ok' : 'danger'}" id="ctoggle">${c.cerrada ? 'Abrir la tienda' : 'Cerrar la tienda'}</button>
+        <button class="btn sec" id="cmsgSave">Guardar mensaje</button>
+        <a class="muted" href="./?vista=cierre" target="_blank" rel="noopener" style="margin-left:auto">Ver cómo se ve el cartel</a></div>
+      <div class="err" id="cerr"></div></div>` : '';
+  M.innerHTML = bloqueCierre + `<div class="card"><h2 style="margin:0;font-size:18px">Ajustes de la tienda</h2>
     <div class="g2">
       <div><label>Nombre de la tienda</label><input id="cn" value="${esc(c.nombre_tienda)}"></div>
       <div><label>WhatsApp donde llegan los pedidos (con 549, ej. 5491123456789)</label><input id="cw" value="${esc(c.whatsapp)}"></div>
@@ -365,6 +380,20 @@ async function ajustes(){
     if (error){ const e = $('#ce2'); e.textContent = em(error); e.style.display = 'block'; return; }
     toast('Guardado');
   };
+  if (soyAdmin){
+    const errC = m => { const e = $('#cerr'); e.textContent = m; e.style.display = 'block'; };
+    $('#cmsgSave').onclick = async () => {
+      const { error } = await sb.from('tienda_config').update({ mensaje_cierre: $('#cmsg').value.trim() || 'Estamos actualizando la página para darte un mejor servicio. ¡Volvemos muy pronto!' }).eq('id', 1);
+      error ? errC(em(error)) : toast('Mensaje guardado');
+    };
+    $('#ctoggle').onclick = async () => {
+      const cerrar = !c.cerrada;
+      if (cerrar && !confirm('¿Cerrar la tienda al público? Las clientas van a ver el cartel y no van a poder comprar hasta que la vuelvas a abrir.')) return;
+      const { error } = await sb.from('tienda_config').update({ cerrada: cerrar, mensaje_cierre: $('#cmsg').value.trim() || c.mensaje_cierre }).eq('id', 1);
+      if (error) return errC(em(error));
+      toast(cerrar ? 'Tienda cerrada al público' : 'Tienda abierta'); inicio();
+    };
+  }
 }
 
 inicio();
