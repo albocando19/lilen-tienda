@@ -354,12 +354,11 @@ async function cargar(){
 function equipoLogueado(){ try { const x = JSON.parse(localStorage.getItem('lilen-tienda-admin-auth')); return !!(x && x.access_token); } catch { return false; } }
 function mostrarCierre(fotoUrl){
   const ig = cfg.instagram ? `<a class="ig" href="https://instagram.com/${encodeURIComponent(cfg.instagram)}" target="_blank" rel="noopener">Seguinos en Instagram</a>` : '';
-  const wa = waUrl() ? `<a class="wa" href="${esc(waUrl())}" target="_blank" rel="noopener">Escribinos por WhatsApp</a>` : '';
   document.body.insertAdjacentHTML('beforeend', `<div class="cierre" role="dialog" aria-label="Tienda en actualización"><div class="cierre-in">
     <div class="arco">${fotoUrl ? `<img src="${esc(fotoUrl)}" alt="">` : ''}</div>
     <h1>Lilén Márquez</h1>
     <p>${esc(cfg.mensaje_cierre || 'Estamos actualizando la página para darte un mejor servicio. ¡Volvemos muy pronto!')}</p>
-    <div class="acciones">${ig}${wa}</div></div></div>`);
+    <div class="acciones">${ig}</div></div></div>`);
   document.body.style.overflow = 'hidden';
 }
 function stockTotal(p){ return p.vars.reduce((s, v) => s + v.stock, 0); }
