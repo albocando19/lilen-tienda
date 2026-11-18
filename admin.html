@@ -20,13 +20,13 @@
   .tabs{display:flex;gap:4px;overflow-x:auto}
   .tab{border:0;background:none;padding:8px 12px;border-radius:8px;cursor:pointer;white-space:nowrap}
   .tab.on{background:var(--ink);color:#fff}
-  /* En celu: título y Salir arriba, las 4 pestañas en su propio renglón, todas visibles */
+  /* En celu: título y Salir arriba, las 5 pestañas en su propio renglón, todas visibles */
   @media(max-width:700px){
     .bar{flex-wrap:wrap;height:auto;padding-top:8px;padding-bottom:8px;row-gap:8px}
     .bar h1{order:1}
     #salir{order:2}
-    .tabs{order:3;width:100%;display:grid;grid-template-columns:repeat(4,1fr);gap:4px;overflow:visible}
-    .tab{text-align:center;padding:9px 2px;font-size:14px;background:#f1ece5}
+    .tabs{order:3;width:100%;display:grid;grid-template-columns:repeat(5,1fr);gap:4px;overflow:visible}
+    .tab{text-align:center;padding:9px 2px;font-size:13px;background:#f1ece5}
     .tab.on{background:var(--ink)}
   }
   .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin:12px 0}
@@ -74,6 +74,7 @@ const ESTADOS = { pendiente:'Esperando pago', pagado:'Pagado', enviado:'Enviado'
 function waLink(n){ let d = String(n).replace(/\D/g, ''); if (d.startsWith('0')) d = d.slice(1); if (!d.startsWith('54')) d = '549' + d; return 'https://wa.me/' + d; }
 
 let tab = 'pedidos', filtro = 'pendiente', soyAdmin = false;
+const PESTANAS = { pedidos:'Pedidos', productos:'Productos', categorias:'Categorías', clientas:'Clientas', ajustes:'Ajustes' };
 
 async function inicio(){
   const { data } = await sb.auth.getSession();
@@ -83,13 +84,13 @@ async function inicio(){
   const [{ data: adm }, { data: est }] = await Promise.all([sb.rpc('es_admin'), sb.from('tienda_config').select('cerrada').eq('id', 1).single()]);
   soyAdmin = !!adm;
   $('#app').innerHTML = `<header><div class="wrap bar"><h1>Tienda · Panel</h1>
-      <div class="tabs">${['pedidos','productos','clientas','ajustes'].map(t => `<button class="tab ${t === tab ? 'on' : ''}" data-t="${t}">${t[0].toUpperCase() + t.slice(1)}</button>`).join('')}</div>
+      <div class="tabs">${Object.entries(PESTANAS).map(([t, n]) => `<button class="tab ${t === tab ? 'on' : ''}" data-t="${t}">${n}</button>`).join('')}</div>
       <button class="btn sec" id="salir">Salir</button></div></header>
     ${est && est.cerrada ? '<div style="background:#B0275F;color:#fff;text-align:center;padding:8px 16px;font-size:14px">La tienda está <strong>cerrada al público</strong>. Las clientas ven el cartel de "estamos actualizando".</div>' : ''}
     <main class="wrap" id="main"></main>`;
   document.querySelectorAll('.tab').forEach(b => b.onclick = () => { tab = b.dataset.t; inicio(); });
   $('#salir').onclick = async () => { await sb.auth.signOut(); login(); };
-  ({ pedidos, productos, clientas, ajustes })[tab]();
+  ({ pedidos, productos, categorias, clientas, ajustes })[tab]();
 }
 
 function login(msg){
@@ -212,6 +213,11 @@ async function importarProductos(file){
       if (error) throw error;
       data.forEach(d => idPorExt.set(d.ext_id, d.id));
     }
+    // Las categorías que vengan en el Excel y no existan se agregan a la lista
+    const { data: catsYa } = await sb.from('tienda_categorias').select('nombre');
+    const ya = new Set((catsYa || []).map(c => c.nombre.toLowerCase()));
+    const nuevasCat = [...new Set(filasP.map(p => p.categoria).filter(c => c && !ya.has(c.toLowerCase())))];
+    if (nuevasCat.length){ const { error } = await sb.from('tienda_categorias').insert(nuevasCat.map(nombre => ({ nombre, orden: 999 }))); if (error) throw error; }
     const filasV = [];
     for (const [pid, { vars }] of prods){
       const p = filasP.find(x => x.ext_id === pid), vs = [...vars.values()];
@@ -228,9 +234,16 @@ async function importarProductos(file){
   } catch (e) { msg.textContent = 'Error: ' + em(e); }
 }
 
-function editar(p){
+async function editar(p){
   const M = $('#main');
   p = p || { nombre:'', descripcion:'', categoria:'', precio:'', precio_anterior:'', fotos:[], activo:true, orden:0, tienda_variantes:[] };
+  const { data: cats } = await sb.from('tienda_categorias').select('nombre').order('orden').order('nombre');
+  const nombresCat = (cats || []).map(c => c.nombre);
+  // Si el producto tiene una categoría vieja que no está en la lista, se muestra igual para no perderla
+  const huerfana = p.categoria && !nombresCat.includes(p.categoria);
+  const opcionesCat = `<option value="">— Elegí una categoría —</option>` +
+    (huerfana ? `<option value="${esc(p.categoria)}" selected>${esc(p.categoria)} (no está en la lista)</option>` : '') +
+    nombresCat.map(n => `<option value="${esc(n)}" ${n === p.categoria ? 'selected' : ''}>${esc(n)}</option>`).join('');
   let vars = p.tienda_variantes.map(v => ({ ...v }));
   if (!vars.length) vars.push({ talle:'', color:'', stock:0, activo:true });
   const borrar = [];
@@ -247,7 +260,7 @@ function editar(p){
   };
   M.innerHTML = `<div class="card"><div class="row"><h2 style="margin:0;font-size:18px" class="sp">${p.id ? 'Editar producto' : 'Nuevo producto'}</h2><button class="btn sec" id="volver">Volver</button></div>
     <div class="g2"><div><label>Nombre</label><input id="pn" value="${esc(p.nombre)}"></div>
-    <div><label>Categoría</label><input id="pc" value="${esc(p.categoria)}" placeholder="Camperas, Buzos…"></div>
+    <div><label>Categoría <span style="float:right">¿No está? Creala en la pestaña Categorías</span></label><select id="pc">${opcionesCat}</select></div>
     <div><label>Precio</label><input id="pp" type="number" min="0" value="${p.precio}"></div>
     <div><label>Precio anterior (para mostrar oferta, opcional)</label><input id="ppa" type="number" min="0" value="${p.precio_anterior ?? ''}"></div></div>
     <label>Descripción</label><textarea id="pd">${esc(p.descripcion)}</textarea>
@@ -274,6 +287,7 @@ function editar(p){
       fotos: $('#pf').value.split('\n').map(s => s.trim()).filter(Boolean), orden: parseInt($('#po').value || 0), activo: $('#pa').value === '1'
     };
     if (!fila.nombre) return err('Falta el nombre');
+    if (!fila.categoria) return err('Elegí una categoría');
     if (!(fila.precio >= 0) || $('#pp').value === '') return err('Falta el precio');
     const vs = vars.filter(v => v.talle.trim());
     const claves = vs.map(v => v.talle.trim().toLowerCase() + '|' + (v.color || '').trim().toLowerCase());
@@ -291,6 +305,66 @@ function editar(p){
     }
     toast('Guardado'); productos();
   };
+}
+
+// ---------- categorías ----------
+async function categorias(){
+  const M = $('#main');
+  const [{ data: cats, error }, { data: prods }] = await Promise.all([
+    sb.from('tienda_categorias').select('*').order('orden').order('nombre'),
+    sb.from('tienda_productos').select('categoria, activo').limit(10000)
+  ]);
+  const cuenta = {};
+  (prods || []).forEach(p => { if (!p.categoria) return; const c = cuenta[p.categoria] ||= { t:0, v:0 }; c.t++; if (p.activo) c.v++; });
+  const lista = cats || [];
+  M.innerHTML = `<div class="card"><h2 style="margin:0 0 4px;font-size:18px">Categorías</h2>
+      <p class="muted" style="margin:0">Son las que aparecen en el desplegable al cargar un producto y como filtros en la tienda. El orden de acá es el orden del desplegable.</p>
+      <div class="row" style="margin-top:12px"><input id="cnueva" placeholder="Nueva categoría, ej. Camperas" maxlength="60" style="flex:1;width:auto"><button class="btn" id="cagregar">+ Agregar</button></div>
+      <div class="err" id="cerr2"></div></div>
+    ${error ? `<div class="card">${esc(em(error))}</div>` : ''}
+    <div class="card" style="padding:4px 10px"><table><tr><th>Orden</th><th>Nombre</th><th>Productos</th><th></th></tr>
+    ${lista.map((c, k) => { const n = cuenta[c.nombre] || { t:0, v:0 }; return `<tr>
+      <td style="white-space:nowrap"><button class="btn sec" data-sube="${k}" ${k === 0 ? 'disabled' : ''} title="Subir">↑</button> <button class="btn sec" data-baja="${k}" ${k === lista.length - 1 ? 'disabled' : ''} title="Bajar">↓</button></td>
+      <td><input data-nom="${c.id}" value="${esc(c.nombre)}" maxlength="60"></td>
+      <td class="muted">${n.t} <span style="font-size:12px">(${n.v} visibles)</span></td>
+      <td style="white-space:nowrap"><button class="btn sec" data-ren="${c.id}">Guardar nombre</button> <button class="btn danger" data-borra="${c.id}" ${n.t ? `disabled title="Tiene productos: pasalos a otra categoría antes de borrarla"` : ''}>✕</button></td></tr>`; }).join('')}
+    </table>${lista.length ? '' : '<p class="muted">Todavía no hay categorías.</p>'}</div>`;
+  const errC = m => { const e = $('#cerr2'); e.textContent = m; e.style.display = 'block'; };
+  const agregar = async () => {
+    const nombre = $('#cnueva').value.trim();
+    if (nombre.length < 2) return errC('Escribí el nombre de la categoría');
+    if (lista.some(c => c.nombre.toLowerCase() === nombre.toLowerCase())) return errC('Esa categoría ya existe');
+    const orden = lista.length ? Math.max(...lista.map(c => c.orden)) + 1 : 1;
+    const { error } = await sb.from('tienda_categorias').insert({ nombre, orden });
+    error ? errC(em(error)) : (toast('Categoría agregada'), categorias());
+  };
+  $('#cagregar').onclick = agregar;
+  $('#cnueva').onkeydown = e => { if (e.key === 'Enter') agregar(); };
+  M.querySelectorAll('[data-ren]').forEach(b => b.onclick = async () => {
+    const id = +b.dataset.ren, c = lista.find(x => x.id === id), nuevo = M.querySelector(`[data-nom="${id}"]`).value.trim();
+    if (nuevo === c.nombre) return;
+    const n = (cuenta[c.nombre] || { t:0 }).t;
+    if (n && !confirm(`Se va a renombrar "${c.nombre}" a "${nuevo}" y se actualizan sus ${n} productos. ¿Seguimos?`)) return;
+    const { error } = await sb.rpc('tienda_renombrar_categoria', { p_id: id, p_nombre: nuevo });
+    error ? errC(em(error)) : (toast('Nombre actualizado'), categorias());
+  });
+  M.querySelectorAll('[data-borra]').forEach(b => b.onclick = async () => {
+    const c = lista.find(x => x.id === +b.dataset.borra);
+    if (!confirm(`¿Borrar la categoría "${c.nombre}"?`)) return;
+    const { error } = await sb.from('tienda_categorias').delete().eq('id', c.id);
+    error ? errC(em(error)) : (toast('Categoría borrada'), categorias());
+  });
+  const mover = async (k, d) => {
+    // Reasigna el orden de toda la lista para que no queden empates
+    const orden = lista.map(c => c.id); [orden[k], orden[k + d]] = [orden[k + d], orden[k]];
+    for (let i = 0; i < orden.length; i++){
+      const c = lista.find(x => x.id === orden[i]);
+      if (c.orden !== i + 1){ const { error } = await sb.from('tienda_categorias').update({ orden: i + 1 }).eq('id', c.id); if (error) return errC(em(error)); }
+    }
+    categorias();
+  };
+  M.querySelectorAll('[data-sube]').forEach(b => b.onclick = () => mover(+b.dataset.sube, -1));
+  M.querySelectorAll('[data-baja]').forEach(b => b.onclick = () => mover(+b.dataset.baja, 1));
 }
 
 // ---------- clientas ----------

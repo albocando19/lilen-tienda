@@ -329,13 +329,16 @@ document.querySelectorAll('[data-close]').forEach(b => b.onclick = () => cerrar(
 document.addEventListener('keydown', e => { if (e.key === 'Escape') cerrar(); });
 
 // ---------- datos ----------
+let ordenCats = []; // orden de las categorías que se arma desde el panel
 async function cargar(){
   sb.rpc('tienda_liberar_vencidos').then(() => {}, () => {});
-  const [c, p] = await Promise.all([
+  const [c, p, k] = await Promise.all([
     sb.from('tienda_config').select('*').eq('id', 1).maybeSingle(),
     sb.from('tienda_productos').select('id, nombre, descripcion, categoria, precio, precio_anterior, fotos, orden, creado, tienda_variantes(id, talle, color, stock, precio)')
-      .order('orden').order('creado', { ascending:false }).limit(5000)
+      .order('orden').order('creado', { ascending:false }).limit(5000),
+    sb.from('tienda_categorias').select('nombre').order('orden').then(r => r, () => ({ data: [] }))
   ]);
+  ordenCats = (k.data || []).map(x => x.nombre);
   if (p.error){ $('#grid').innerHTML = '<div class="vacio">No pudimos cargar los productos. Revisá tu conexión y recargá la página.</div>'; return; }
   cfg = c.data || {};
   const vistaPrevia = new URLSearchParams(location.search).get('vista') === 'cierre';
@@ -400,7 +403,8 @@ function filtrados(){
   return productos.filter(p => (cat === 'Todo' || p.categoria === cat) && (!t || (p.nombre + ' ' + (p.categoria || '')).toLowerCase().includes(t)));
 }
 function pintarChips(){
-  const cats = ['Todo', ...new Set(productos.filter(p => stockTotal(p) > 0).map(p => p.categoria).filter(Boolean))];
+  const pos = c => { const i = ordenCats.indexOf(c); return i < 0 ? 9999 : i; };
+  const cats = ['Todo', ...[...new Set(productos.filter(p => stockTotal(p) > 0).map(p => p.categoria).filter(Boolean))].sort((x, y) => pos(x) - pos(y))];
   $('#chips').innerHTML = cats.map(c => `<button class="chip" aria-pressed="${c === cat}" data-c="${esc(c)}">${esc(c)}</button>`).join('');
   $('#chips').querySelectorAll('.chip').forEach(b => b.onclick = () => { cat = b.dataset.c; mostrados = POR_PAGINA; pintarChips(); pintarGrid(); });
 }
