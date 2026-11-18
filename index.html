@@ -440,7 +440,7 @@ function verProducto(id){
   const soloUnico = p.vars.length === 1 && p.vars[0].talle === 'Único' && !p.vars[0].color;
   const pintar = () => {
     const v = p.vars.find(v => v.id === sel);
-    const etiqueta = p.vars.some(x => x.talle !== 'Único') ? (p.vars.some(x => x.color) ? 'Talle y color' : 'Talle') : 'Opción';
+    const etiqueta = p.vars.some(x => x.talle !== 'Único') ? (p.vars.some(x => x.color) ? 'Talle y color' : 'Talle') : (p.vars.some(x => x.color) ? 'Color · talle único' : 'Opción');
     $('#prodBody').innerHTML = `<div class="pd">
       <div><div class="gal" id="gal">${fotos.map(f => f ? `<img src="${esc(f)}" alt="${esc(p.nombre)}">` : '<div class="noimg"></div>').join('')}</div>
         ${fotos.length > 1 ? `<div class="dots">${fotos.map(() => '<i></i>').join('')}</div>` : ''}</div>

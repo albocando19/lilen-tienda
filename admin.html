@@ -255,11 +255,13 @@ async function editar(p){
     nombresCat.map(n => `<option value="${esc(n)}" ${n === p.categoria ? 'selected' : ''}>${esc(n)}</option>`).join('');
   let vars = p.tienda_variantes.map(v => ({ ...v }));
   if (!vars.length) vars.push({ talle:'', color:'', stock:0, activo:true });
+  // Talle único: el producto no tiene talles, solo varía el color (se guarda con talle "Único")
+  let unico = p.tienda_variantes.length > 0 && p.tienda_variantes.every(v => (v.talle || '').toLowerCase() === 'único' || (v.talle || '').toLowerCase() === 'unico');
   const borrar = [];
   const pintarVars = () => {
-    $('#vars').innerHTML = `<tr><th>Talle</th><th>Color / modelo</th><th>Stock</th><th>Precio (si cambia)</th><th>Visible</th><th></th></tr>` + vars.map((v, k) => `<tr>
-      <td><input data-k="${k}" data-f="talle" value="${esc(v.talle)}" placeholder="M"></td>
-      <td><input data-k="${k}" data-f="color" value="${esc(v.color)}"></td>
+    $('#vars').innerHTML = `<tr>${unico ? '' : '<th>Talle</th>'}<th>${unico ? 'Color' : 'Color / modelo'}</th><th>Stock</th><th>Precio (si cambia)</th><th>Visible</th><th></th></tr>` + vars.map((v, k) => `<tr>
+      ${unico ? '' : `<td><input data-k="${k}" data-f="talle" value="${esc(v.talle)}" placeholder="M"></td>`}
+      <td><input data-k="${k}" data-f="color" value="${esc(v.color)}" placeholder="${unico ? 'Negro' : ''}"></td>
       <td><input data-k="${k}" data-f="stock" type="number" min="0" value="${v.stock}" style="width:80px"></td>
       <td><input data-k="${k}" data-f="precio" type="number" min="0" value="${v.precio ?? ''}" placeholder="—" style="width:100px"></td>
       <td><input data-k="${k}" data-f="activo" type="checkbox" ${v.activo ? 'checked' : ''} style="width:auto"></td>
@@ -280,10 +282,18 @@ async function editar(p){
     <div class="g2"><div><label>Orden (menor = aparece primero)</label><input id="po" type="number" value="${p.orden}"></div>
     <div><label>Visible en la tienda</label><select id="pa"><option value="1" ${p.activo ? 'selected' : ''}>Sí</option><option value="0" ${p.activo ? '' : 'selected'}>No (oculto)</option></select></div></div>
     <h3 style="font-size:15px;margin:18px 0 4px">Talles y stock</h3>
-    <table id="vars"></table><button class="btn sec" id="addv" style="margin-top:8px">+ Talle</button>
+    <label style="display:flex;align-items:center;gap:8px;margin:6px 0 10px;cursor:pointer;color:var(--ink);font-size:14px"><input type="checkbox" id="unico" style="width:auto" ${unico ? 'checked' : ''}> Talle único (solo varía el color)</label>
+    <table id="vars"></table><button class="btn sec" id="addv" style="margin-top:8px">${unico ? '+ Color' : '+ Talle'}</button>
     <div class="err" id="pe"></div>
     <div class="row" style="margin-top:16px"><button class="btn" id="guardar">Guardar</button>${p.id ? '<span class="sp"></span><button class="btn danger" id="eliminar">Eliminar producto</button>' : ''}</div></div>`;
   pintarVars();
+  $('#unico').onchange = e => {
+    unico = e.target.checked;
+    if (unico) vars.forEach(v => { if (v.talle && v.talle.toLowerCase() !== 'único' && v.talle.toLowerCase() !== 'unico' && !v.color) v.color = ''; v.talle = 'Único'; });
+    else vars.forEach(v => { if (v.talle === 'Único') v.talle = ''; });
+    $('#addv').textContent = unico ? '+ Color' : '+ Talle';
+    pintarVars();
+  };
   // ---- fotos: se suben, se achican a WebP y se ordenan con flechitas ----
   let fotos = [...(p.fotos || [])], subiendo = 0;
   const pintarFotos = () => {
@@ -311,7 +321,7 @@ async function editar(p){
     $('#guardar').disabled = subiendo > 0;
     msg.textContent = mal ? `Se subieron ${ok}. ${mal} no se pudo${mal > 1 ? 'ieron' : ''} leer: probá sacarle captura o mandarla por WhatsApp y volver a bajarla.` : `¡Listo! ${ok} foto${ok > 1 ? 's' : ''} subida${ok > 1 ? 's' : ''}. Acordate de tocar Guardar.`;
   };
-  $('#addv').onclick = () => { vars.push({ talle:'', color:'', stock:0, activo:true }); pintarVars(); };
+  $('#addv').onclick = () => { vars.push({ talle: unico ? 'Único' : '', color:'', stock:0, activo:true }); pintarVars(); };
   $('#volver').onclick = productos;
   const err = m => { const e = $('#pe'); e.textContent = m; e.style.display = 'block'; };
   if (p.id) $('#eliminar').onclick = async () => {
@@ -328,9 +338,12 @@ async function editar(p){
     if (!fila.nombre) return err('Falta el nombre');
     if (!fila.categoria) return err('Elegí una categoría');
     if (!(fila.precio >= 0) || $('#pp').value === '') return err('Falta el precio');
-    const vs = vars.filter(v => v.talle.trim());
+    if (unico) vars.forEach(v => v.talle = 'Único');
+    else vars.forEach(v => { if (!(v.talle || '').trim() && (v.color || '').trim()) v.talle = 'Único'; });   // si pusieron color sin talle, no se pierde
+    const vs = vars.filter(v => (v.talle || '').trim());
+    if (unico && vs.length > 1 && vs.some(v => !(v.color || '').trim())) return err('Con talle único, poné el color en cada fila');
     const claves = vs.map(v => v.talle.trim().toLowerCase() + '|' + (v.color || '').trim().toLowerCase());
-    if (new Set(claves).size !== claves.length) return err('Hay talles repetidos (mismo talle y color)');
+    if (new Set(claves).size !== claves.length) return err(unico ? 'Hay colores repetidos' : 'Hay talles repetidos (mismo talle y color)');
     $('#guardar').disabled = true;
     const r = p.id ? await sb.from('tienda_productos').update(fila).eq('id', p.id).select().single()
                    : await sb.from('tienda_productos').insert(fila).select().single();
