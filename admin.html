@@ -56,6 +56,15 @@
   .err{background:#fbeae5;color:var(--warn);border-radius:8px;padding:8px 10px;margin:10px 0;display:none}
   .toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:var(--ink);color:#fff;border-radius:999px;padding:9px 16px;display:none;z-index:9}
   .login{max-width:360px;margin:12vh auto}
+  .fotos{display:flex;flex-wrap:wrap;gap:10px;min-height:20px}
+  .foto{position:relative;width:96px}
+  .foto img{width:96px;height:120px;object-fit:cover;border-radius:8px;border:1px solid var(--line);display:block;background:var(--chip)}
+  .foto.portada img{border:2px solid var(--ink)}
+  .foto .tag{position:absolute;top:4px;left:4px;background:var(--ink);color:#fff;font-size:11px;border-radius:999px;padding:1px 7px}
+  .foto .acc{display:flex;gap:4px;margin-top:4px}
+  .foto .acc button{flex:1;border:1px solid var(--line);background:#fff;border-radius:6px;padding:3px 0;cursor:pointer;font-size:13px}
+  .foto .acc button:disabled{opacity:.35;cursor:default}
+  .foto.subiendo img{opacity:.4}
 </style>
 </head>
 <body>
@@ -264,7 +273,10 @@ async function editar(p){
     <div><label>Precio</label><input id="pp" type="number" min="0" value="${p.precio}"></div>
     <div><label>Precio anterior (para mostrar oferta, opcional)</label><input id="ppa" type="number" min="0" value="${p.precio_anterior ?? ''}"></div></div>
     <label>Descripción</label><textarea id="pd">${esc(p.descripcion)}</textarea>
-    <label>Fotos: una por línea (ej. img/campera-negra-1.webp, o un link completo)</label><textarea id="pf">${esc(p.fotos.join('\n'))}</textarea>
+    <label>Fotos <span style="float:right">La primera es la que se ve en la tienda</span></label>
+    <div class="fotos" id="fotos"></div>
+    <div class="row" style="margin-top:8px"><label class="btn sec" style="margin:0;color:var(--ink);font-size:14px">📷 Subir fotos<input type="file" id="pfup" accept="image/*" multiple hidden></label>
+      <span class="muted" id="pfmsg" style="font-size:13px">Podés elegir varias juntas. Se achican solas para que la tienda cargue rápido.</span></div>
     <div class="g2"><div><label>Orden (menor = aparece primero)</label><input id="po" type="number" value="${p.orden}"></div>
     <div><label>Visible en la tienda</label><select id="pa"><option value="1" ${p.activo ? 'selected' : ''}>Sí</option><option value="0" ${p.activo ? '' : 'selected'}>No (oculto)</option></select></div></div>
     <h3 style="font-size:15px;margin:18px 0 4px">Talles y stock</h3>
@@ -272,6 +284,33 @@ async function editar(p){
     <div class="err" id="pe"></div>
     <div class="row" style="margin-top:16px"><button class="btn" id="guardar">Guardar</button>${p.id ? '<span class="sp"></span><button class="btn danger" id="eliminar">Eliminar producto</button>' : ''}</div></div>`;
   pintarVars();
+  // ---- fotos: se suben, se achican a WebP y se ordenan con flechitas ----
+  let fotos = [...(p.fotos || [])], subiendo = 0;
+  const pintarFotos = () => {
+    $('#fotos').innerHTML = fotos.map((f, k) => `<div class="foto ${k === 0 ? 'portada' : ''}">
+        <img src="${esc(f)}" alt="">${k === 0 ? '<span class="tag">Portada</span>' : ''}
+        <div class="acc"><button data-fi="${k}" ${k === 0 ? 'disabled' : ''} title="Mover a la izquierda">←</button>
+          <button data-fd="${k}" ${k === fotos.length - 1 ? 'disabled' : ''} title="Mover a la derecha">→</button>
+          <button data-fx="${k}" title="Quitar foto">✕</button></div></div>`).join('') +
+      (fotos.length ? '' : '<span class="muted" style="font-size:13px">Todavía no tiene fotos.</span>');
+    $('#fotos').querySelectorAll('[data-fi]').forEach(b => b.onclick = () => { const k = +b.dataset.fi; [fotos[k - 1], fotos[k]] = [fotos[k], fotos[k - 1]]; pintarFotos(); });
+    $('#fotos').querySelectorAll('[data-fd]').forEach(b => b.onclick = () => { const k = +b.dataset.fd; [fotos[k + 1], fotos[k]] = [fotos[k], fotos[k + 1]]; pintarFotos(); });
+    $('#fotos').querySelectorAll('[data-fx]').forEach(b => b.onclick = () => { fotos.splice(+b.dataset.fx, 1); pintarFotos(); });
+  };
+  pintarFotos();
+  $('#pfup').onchange = async e => {
+    const archivos = [...e.target.files]; e.target.value = '';
+    const msg = $('#pfmsg'); let ok = 0, mal = 0;
+    subiendo += archivos.length; $('#guardar').disabled = true;
+    for (const [i, a] of archivos.entries()){
+      msg.textContent = `Subiendo foto ${i + 1} de ${archivos.length}…`;
+      try { fotos.push(await subirFoto(a)); ok++; pintarFotos(); }
+      catch (er) { mal++; console.error(er); }
+      subiendo--;
+    }
+    $('#guardar').disabled = subiendo > 0;
+    msg.textContent = mal ? `Se subieron ${ok}. ${mal} no se pudo${mal > 1 ? 'ieron' : ''} leer: probá sacarle captura o mandarla por WhatsApp y volver a bajarla.` : `¡Listo! ${ok} foto${ok > 1 ? 's' : ''} subida${ok > 1 ? 's' : ''}. Acordate de tocar Guardar.`;
+  };
   $('#addv').onclick = () => { vars.push({ talle:'', color:'', stock:0, activo:true }); pintarVars(); };
   $('#volver').onclick = productos;
   const err = m => { const e = $('#pe'); e.textContent = m; e.style.display = 'block'; };
@@ -284,7 +323,7 @@ async function editar(p){
     const fila = {
       nombre: $('#pn').value.trim(), categoria: $('#pc').value.trim() || null, descripcion: $('#pd').value.trim() || null,
       precio: Number($('#pp').value), precio_anterior: $('#ppa').value ? Number($('#ppa').value) : null,
-      fotos: $('#pf').value.split('\n').map(s => s.trim()).filter(Boolean), orden: parseInt($('#po').value || 0), activo: $('#pa').value === '1'
+      fotos, orden: parseInt($('#po').value || 0), activo: $('#pa').value === '1'
     };
     if (!fila.nombre) return err('Falta el nombre');
     if (!fila.categoria) return err('Elegí una categoría');
@@ -305,6 +344,22 @@ async function editar(p){
     }
     toast('Guardado'); productos();
   };
+}
+
+// Achica la imagen (lado mayor 1200 px), la pasa a WebP y la sube al bucket "productos". Devuelve el link público.
+async function subirFoto(archivo){
+  const bmp = await createImageBitmap(archivo, { imageOrientation:'from-image' });
+  const esc_ = Math.min(1, 1200 / Math.max(bmp.width, bmp.height));
+  const c = document.createElement('canvas');
+  c.width = Math.round(bmp.width * esc_); c.height = Math.round(bmp.height * esc_);
+  c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
+  let blob = await new Promise(r => c.toBlob(r, 'image/webp', 0.8));
+  let ext = 'webp', tipo = 'image/webp';
+  if (!blob || blob.type !== 'image/webp'){ blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.82)); ext = 'jpg'; tipo = 'image/jpeg'; } // Safari viejo no hace WebP
+  const nombre = `p-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+  const { error } = await sb.storage.from('productos').upload(nombre, blob, { contentType: tipo, cacheControl: '31536000' });
+  if (error) throw error;
+  return sb.storage.from('productos').getPublicUrl(nombre).data.publicUrl;
 }
 
 // ---------- categorías ----------
