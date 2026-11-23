@@ -52,18 +52,14 @@
   td,th{padding:6px 4px;border-bottom:1px solid var(--line);text-align:left;vertical-align:middle}
   th{font-size:12px;color:var(--muted);font-weight:500}
   td input{padding:6px 8px}
-  /* Talles en celu: cada talle es una tarjetita con los campos grandes y con nombre */
+  /* Matriz en celu: un renglón por combinación, campos chicos pero legibles */
   @media(max-width:700px){
-    #vars, #vars tbody{display:block}
-    #vars tr:first-child{display:none}
-    #vars tr{display:grid;grid-template-columns:1fr 1fr;gap:10px 12px;align-items:end;border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:10px;background:#fff}
-    #vars td{border:0;padding:0}
-    #vars td::before{content:attr(data-label);display:block;font-size:12px;color:var(--muted);margin-bottom:3px}
-    #vars td input:not([type=checkbox]){width:100% !important;font-size:16px;padding:10px}
-    #vars .v-vis{display:flex;align-items:center;gap:8px}
-    #vars .v-vis::before{margin:0}
-    #vars .v-vis input{width:22px !important;height:22px}
-    #vars .v-del{text-align:right}
+    #vars th{font-size:11px;padding:4px 2px}
+    #vars td{padding:6px 2px}
+    #vars .v-lbl{font-size:14px;line-height:1.25;word-break:break-word}
+    #vars td input:not([type=checkbox]){width:64px !important;font-size:16px;padding:8px 6px}
+    #vars td input[data-f=precio]{width:74px !important}
+    #vars .v-vis input{width:22px;height:22px}
   }
   tr.editado td{background:#FBE7EE}
   .tag-editado{display:inline-block;white-space:nowrap;background:#B0275F;color:#fff;border-radius:999px;font-size:11px;padding:1px 8px;margin-right:6px;vertical-align:middle}
@@ -269,6 +265,37 @@ async function importarProductos(file){
   } catch (e) { msg.textContent = 'Error: ' + em(e); }
 }
 
+// ---- Variables de producto ----
+const esTalle = n => /^\s*talles?\s*$/i.test(String(n || ''));
+const esColor = n => /^\s*colou?r(es)?\s*$/i.test(String(n || ''));
+const esUnico = t => /^[úu]nico$/i.test(String(t || '').trim());
+function $$last(sel){ const l = document.querySelectorAll(sel); return l[l.length - 1]; }
+// Variables del producto; los productos viejos (solo talle/color) se convierten solos
+function atributosDe(p){
+  if (Array.isArray(p.atributos) && p.atributos.length) return p.atributos.map(a => ({ nombre: a.nombre, valores: [...a.valores] }));
+  const vs = p.tienda_variantes || [];
+  const talles = [...new Set(vs.map(v => (v.talle || '').trim()).filter(Boolean))];
+  const colores = [...new Set(vs.map(v => (v.color || '').trim()).filter(Boolean))];
+  const a = [];
+  if (talles.length && !talles.every(esUnico)) a.push({ nombre: 'Talle', valores: talles });
+  if (colores.length) a.push({ nombre: 'Color', valores: colores });
+  return a;
+}
+function opcionesDe(v, attrs){
+  if (v.opciones && typeof v.opciones === 'object') return attrs.map(a => v.opciones[a.nombre] ?? '');
+  return attrs.map(a => esTalle(a.nombre) ? (v.talle || '') : (v.color || ''));
+}
+const claveVals = vals => JSON.stringify(vals.map(x => String(x).trim().toLowerCase()));
+const etiquetaVals = vals => vals.filter(Boolean).join(' · ');
+function combinaciones(attrs){
+  return attrs.filter(a => a.valores.length).reduce((acc, a) => acc.flatMap(c => a.valores.map(v => [...c, v])), [[]]);
+}
+// Para la tienda y los pedidos: "talle" es la variable Talle (o "Único") y "color" junta el resto
+function talleColor(attrs, vals){
+  const ti = attrs.findIndex(a => esTalle(a.nombre));
+  return { talle: ti >= 0 ? String(vals[ti]).slice(0, 60) : 'Único', color: vals.filter((_, i) => i !== ti).join(' · ').slice(0, 120) };
+}
+
 async function editar(p){
   const M = $('#main');
   volverScroll = window.scrollY; ultimoEditado = p ? p.id : null;
@@ -280,21 +307,66 @@ async function editar(p){
   const opcionesCat = `<option value="">— Elegí una categoría —</option>` +
     (huerfana ? `<option value="${esc(p.categoria)}" selected>${esc(p.categoria)} (no está en la lista)</option>` : '') +
     nombresCat.map(n => `<option value="${esc(n)}" ${n === p.categoria ? 'selected' : ''}>${esc(n)}</option>`).join('');
-  let vars = p.tienda_variantes.map(v => ({ ...v }));
-  if (!vars.length) vars.push({ talle:'', color:'', stock:0, activo:true });
-  // Talle único: el producto no tiene talles, solo varía el color (se guarda con talle "Único")
-  let unico = p.tienda_variantes.length > 0 && p.tienda_variantes.every(v => (v.talle || '').toLowerCase() === 'único' || (v.talle || '').toLowerCase() === 'unico');
-  const borrar = [];
+  // ---- Variables (Talle, Color, Escote…) y matriz de combinaciones ----
+  let attrs = atributosDe(p);
+  const previas = new Map();   // combinaciones que ya existían, para no perder su id ni su stock
+  (p.tienda_variantes || []).forEach(v => previas.set(claveVals(opcionesDe(v, attrs)), { ...v }));
+  let filas = [];
+  let stockDef = p.id ? 0 : 3;
+  const regenerar = () => {
+    const actual = new Map(filas.map(f => [claveVals(f.vals), f]));
+    filas = combinaciones(attrs).map(vals => {
+      const k = claveVals(vals);
+      if (actual.has(k)) return { ...actual.get(k), vals };
+      if (previas.has(k)) return { ...previas.get(k), vals };
+      return { vals, stock: stockDef, precio: null, activo: true };
+    });
+  };
+  regenerar();
+  const pintarAttrs = () => {
+    $('#attrs').innerHTML = attrs.map((a, i) => `<div class="attr">
+        <div class="row"><input class="attr-nom" data-a="${i}" value="${esc(a.nombre)}" placeholder="Nombre de la variable (ej: Talle)" style="flex:1;width:auto">
+          <button class="btn danger" data-adel="${i}" title="Quitar variable">Quitar</button></div>
+        <div class="chips-v">${a.valores.map((v, k) => `<span class="chip-v">${esc(v)}<button data-a="${i}" data-vdel="${k}" aria-label="Quitar ${esc(v)}">✕</button></span>`).join('') || '<span class="muted" style="font-size:13px">Todavía no tiene opciones.</span>'}</div>
+        <div class="row"><input class="attr-val" data-a="${i}" placeholder="Agregá opciones: S, M, L" style="flex:1;width:auto">
+          <button class="btn sec" data-aadd="${i}">Agregar</button></div>
+        <div class="atajos">${(esTalle(a.nombre) || !a.nombre ? [['S M L XL','S, M, L, XL'], ['1 al 5','1, 2, 3, 4, 5'], ['36 al 46','36, 38, 40, 42, 44, 46']] : esColor(a.nombre) ? [['Negro Blanco','Negro, Blanco']] : [['Sí / No','Sí, No']])
+          .map(([t, v]) => `<button class="link-btn" data-a="${i}" data-atajo="${esc(v)}">+ ${t}</button>`).join('')}</div>
+      </div>`).join('') + (attrs.length < 3 ? `<button class="btn sec" id="addAttr">+ Agregar variable</button>` : '<p class="muted" style="font-size:13px">Máximo 3 variables por producto.</p>');
+    const agregarVals = (i, texto) => {
+      const nuevos = String(texto).split(/[,;\n]/).map(x => x.trim()).filter(Boolean);
+      const a = attrs[i];
+      for (const n of nuevos) if (!a.valores.some(v => v.toLowerCase() === n.toLowerCase())) a.valores.push(n.slice(0, 40));
+      regenerar(); pintarAttrs(); pintarVars();
+      const inp = $(`.attr-val[data-a="${i}"]`); if (inp) inp.focus();
+    };
+    $('#attrs').querySelectorAll('.attr-nom').forEach(inp => inp.onchange = () => {
+      const i = +inp.dataset.a, nuevo = inp.value.trim().slice(0, 30);
+      if (attrs.some((a, k) => k !== i && a.nombre.toLowerCase() === nuevo.toLowerCase())) { inp.value = attrs[i].nombre; return alert('Ya hay una variable con ese nombre'); }
+      attrs[i].nombre = nuevo; pintarAttrs(); pintarVars();
+    });
+    $('#attrs').querySelectorAll('.attr-val').forEach(inp => inp.onkeydown = e => { if (e.key === 'Enter'){ e.preventDefault(); agregarVals(+inp.dataset.a, inp.value); } });
+    $('#attrs').querySelectorAll('[data-aadd]').forEach(b => b.onclick = () => agregarVals(+b.dataset.aadd, $(`.attr-val[data-a="${b.dataset.aadd}"]`).value));
+    $('#attrs').querySelectorAll('[data-atajo]').forEach(b => b.onclick = () => agregarVals(+b.dataset.a, b.dataset.atajo));
+    $('#attrs').querySelectorAll('[data-vdel]').forEach(b => b.onclick = () => { attrs[+b.dataset.a].valores.splice(+b.dataset.vdel, 1); regenerar(); pintarAttrs(); pintarVars(); });
+    $('#attrs').querySelectorAll('[data-adel]').forEach(b => b.onclick = () => {
+      if (!confirm('¿Quitar la variable "' + (attrs[+b.dataset.adel].nombre || 'sin nombre') + '"? Las combinaciones se vuelven a armar.')) return;
+      attrs.splice(+b.dataset.adel, 1); regenerar(); pintarAttrs(); pintarVars();
+    });
+    const add = $('#addAttr'); if (add) add.onclick = () => {
+      const sug = ['Talle', 'Color', 'Modelo'].find(n => !attrs.some(a => a.nombre.toLowerCase() === n.toLowerCase())) || '';
+      attrs.push({ nombre: sug, valores: [] }); pintarAttrs(); $$last('.attr-val').focus();
+    };
+  };
   const pintarVars = () => {
-    $('#vars').innerHTML = `<tr>${unico ? '' : '<th>Talle</th>'}<th>${unico ? 'Color' : 'Color / modelo'}</th><th>Stock</th><th>Precio (si cambia)</th><th>Visible</th><th></th></tr>` + vars.map((v, k) => `<tr>
-      ${unico ? '' : `<td data-label="Talle"><input data-k="${k}" data-f="talle" value="${esc(v.talle)}" placeholder="M"></td>`}
-      <td data-label="${unico ? 'Color' : 'Color / modelo'}"><input data-k="${k}" data-f="color" value="${esc(v.color)}" placeholder="${unico ? 'Negro' : ''}"></td>
-      <td data-label="Stock"><input data-k="${k}" data-f="stock" inputmode="numeric" type="number" min="0" value="${v.stock}" style="width:80px"></td>
-      <td data-label="Precio (si cambia)"><input data-k="${k}" data-f="precio" inputmode="numeric" type="number" min="0" value="${v.precio ?? ''}" placeholder="—" style="width:100px"></td>
-      <td data-label="Visible" class="v-vis"><input data-k="${k}" data-f="activo" type="checkbox" ${v.activo ? 'checked' : ''} style="width:auto"></td>
-      <td class="v-del"><button class="btn danger" data-del="${k}" aria-label="Quitar">✕</button></td></tr>`).join('');
-    $('#vars').querySelectorAll('input').forEach(i => i.oninput = () => { const v = vars[+i.dataset.k]; v[i.dataset.f] = i.type === 'checkbox' ? i.checked : i.dataset.f === 'precio' ? (i.value === '' ? null : Math.max(0, Number(i.value))) : i.type === 'number' ? Math.max(0, parseInt(i.value || 0)) : i.value; });
-    $('#vars').querySelectorAll('[data-del]').forEach(b => b.onclick = () => { const [v] = vars.splice(+b.dataset.del, 1); if (v.id) borrar.push(v.id); pintarVars(); });
+    const nombres = attrs.filter(a => a.valores.length).map(a => a.nombre || 'Variable');
+    $('#matrizInfo').textContent = filas.length === 1 && !nombres.length ? 'Sin variables: el producto tiene un solo stock.' : `${filas.length} ${filas.length === 1 ? 'combinación' : 'combinaciones'}${nombres.length ? ' de ' + nombres.join(' × ') : ''}`;
+    $('#vars').innerHTML = `<tr><th>Combinación</th><th>Stock</th><th>Precio (si cambia)</th><th>Visible</th></tr>` + filas.map((f, k) => `<tr>
+      <td class="v-lbl" data-label="Combinación"><strong>${esc(etiquetaVals(f.vals)) || 'Único'}</strong></td>
+      <td data-label="Stock"><input data-k="${k}" data-f="stock" inputmode="numeric" type="number" min="0" value="${f.stock}" style="width:80px"></td>
+      <td data-label="Precio (si cambia)"><input data-k="${k}" data-f="precio" inputmode="numeric" type="number" min="0" value="${f.precio ?? ''}" placeholder="—" style="width:100px"></td>
+      <td data-label="Visible" class="v-vis"><input data-k="${k}" data-f="activo" type="checkbox" ${f.activo ? 'checked' : ''} style="width:auto"></td></tr>`).join('');
+    $('#vars').querySelectorAll('input').forEach(i => i.oninput = () => { const f = filas[+i.dataset.k]; f[i.dataset.f] = i.type === 'checkbox' ? i.checked : i.dataset.f === 'precio' ? (i.value === '' ? null : Math.max(0, Number(i.value))) : Math.max(0, parseInt(i.value || 0)); });
   };
   window.scrollTo(0, 0);
   M.innerHTML = `<div class="card"><div class="row"><h2 style="margin:0;font-size:18px" class="sp">${p.id ? 'Editar producto' : 'Nuevo producto'}</h2><button class="btn sec" id="volver">Volver</button></div>
@@ -309,18 +381,22 @@ async function editar(p){
       <span class="muted" id="pfmsg" style="font-size:13px">Podés elegir varias juntas. Se achican solas para que la tienda cargue rápido.</span></div>
     <div class="g2"><div><label>Orden (menor = aparece primero)</label><input id="po" type="number" value="${p.orden}"></div>
     <div><label>Visible en la tienda</label><select id="pa"><option value="1" ${p.activo ? 'selected' : ''}>Sí</option><option value="0" ${p.activo ? '' : 'selected'}>No (oculto)</option></select></div></div>
-    <h3 style="font-size:15px;margin:18px 0 4px">Talles y stock</h3>
-    <label style="display:flex;align-items:center;gap:8px;margin:6px 0 10px;cursor:pointer;color:var(--ink);font-size:14px"><input type="checkbox" id="unico" style="width:auto" ${unico ? 'checked' : ''}> Talle único (solo varía el color)</label>
-    <table id="vars"></table><button class="btn sec" id="addv" style="margin-top:8px">${unico ? '+ Color' : '+ Talle'}</button>
+    <h3 style="font-size:15px;margin:18px 0 4px">Variables</h3>
+    <p class="muted" style="margin:0 0 8px;font-size:13px">Armá las variables del producto (Talle, Color, Escote…) y sus opciones. Se arman solas todas las combinaciones. Si no tiene variables, dejalo vacío y cargá un solo stock.</p>
+    <div id="attrs"></div>
+    <h3 style="font-size:15px;margin:18px 0 4px">Stock por combinación</h3>
+    <div class="row" style="margin:4px 0 8px"><span class="muted" id="matrizInfo" style="font-size:13px"></span><span class="sp"></span>
+      <label style="margin:0;display:flex;align-items:center;gap:6px;color:var(--ink)">Stock para todas <input id="stockTodas" type="number" min="0" inputmode="numeric" value="${stockDef}" style="width:70px"></label>
+      <button class="btn sec" id="aplicarTodas">Aplicar</button></div>
+    <table id="vars"></table>
     <div class="err" id="pe"></div>
     <div class="row" style="margin-top:16px"><button class="btn" id="guardar">Guardar</button>${p.id ? '<span class="sp"></span><button class="btn danger" id="eliminar">Eliminar producto</button>' : ''}</div></div>`;
-  pintarVars();
-  $('#unico').onchange = e => {
-    unico = e.target.checked;
-    if (unico) vars.forEach(v => { if (v.talle && v.talle.toLowerCase() !== 'único' && v.talle.toLowerCase() !== 'unico' && !v.color) v.color = ''; v.talle = 'Único'; });
-    else vars.forEach(v => { if (v.talle === 'Único') v.talle = ''; });
-    $('#addv').textContent = unico ? '+ Color' : '+ Talle';
-    pintarVars();
+  pintarAttrs(); pintarVars();
+  $('#stockTodas').oninput = e => { stockDef = Math.max(0, parseInt(e.target.value || 0)); };
+  $('#aplicarTodas').onclick = () => {
+    stockDef = Math.max(0, parseInt($('#stockTodas').value || 0));
+    if (filas.length > 1 && !confirm(`¿Poner stock ${stockDef} en las ${filas.length} combinaciones?`)) return;
+    filas.forEach(f => f.stock = stockDef); pintarVars(); toast('Stock aplicado a todas');
   };
   // ---- fotos: se suben, se achican a WebP y se ordenan con flechitas ----
   let fotos = [...(p.fotos || [])], subiendo = 0;
@@ -349,7 +425,6 @@ async function editar(p){
     $('#guardar').disabled = subiendo > 0;
     msg.textContent = mal ? `Se subieron ${ok}. ${mal} no se pudo${mal > 1 ? 'ieron' : ''} leer: probá sacarle captura o mandarla por WhatsApp y volver a bajarla.` : `¡Listo! ${ok} foto${ok > 1 ? 's' : ''} subida${ok > 1 ? 's' : ''}. Acordate de tocar Guardar.`;
   };
-  $('#addv').onclick = () => { vars.push({ talle: unico ? 'Único' : '', color:'', stock:0, activo:true }); pintarVars(); };
   $('#volver').onclick = productos;
   const err = m => { const e = $('#pe'); e.textContent = m; e.style.display = 'block'; };
   if (p.id) $('#eliminar').onclick = async () => {
@@ -366,23 +441,24 @@ async function editar(p){
     if (!fila.nombre) return err('Falta el nombre');
     if (!fila.categoria) return err('Elegí una categoría');
     if (!(fila.precio >= 0) || $('#pp').value === '') return err('Falta el precio');
-    if (unico) vars.forEach(v => v.talle = 'Único');
-    else vars.forEach(v => { if (!(v.talle || '').trim() && (v.color || '').trim()) v.talle = 'Único'; });   // si pusieron color sin talle, no se pierde
-    const vs = vars.filter(v => (v.talle || '').trim());
-    if (unico && vs.length > 1 && vs.some(v => !(v.color || '').trim())) return err('Con talle único, poné el color en cada fila');
-    const claves = vs.map(v => v.talle.trim().toLowerCase() + '|' + (v.color || '').trim().toLowerCase());
-    if (new Set(claves).size !== claves.length) return err(unico ? 'Hay colores repetidos' : 'Hay talles repetidos (mismo talle y color)');
+    // Variables: sin nombre o sin opciones no sirven
+    const attrsOk = attrs.filter(a => a.valores.length);
+    if (attrsOk.some(a => !a.nombre.trim())) return err('Ponele nombre a cada variable (ej: Talle, Color)');
+    if (attrs.some(a => a.nombre.trim() && !a.valores.length)) return err(`La variable "${attrs.find(a => a.nombre.trim() && !a.valores.length).nombre}" no tiene opciones: agregale alguna o quitala`);
+    if (filas.length > 300) return err('Son demasiadas combinaciones (máximo 300). Quitá alguna opción.');
+    fila.atributos = attrsOk.map(a => ({ nombre: a.nombre.trim(), valores: a.valores }));
+    const vsGuardar = filas.map(f => {
+      const { talle, color } = talleColor(attrsOk, f.vals);
+      const opciones = Object.fromEntries(attrsOk.map((a, i) => [a.nombre.trim(), f.vals[i]]));
+      return { id: f.id ?? null, talle, color, opciones: attrsOk.length ? opciones : null, stock: f.stock || 0, precio: f.precio ?? null, activo: !!f.activo };
+    });
     $('#guardar').disabled = true;
     const r = p.id ? await sb.from('tienda_productos').update(fila).eq('id', p.id).select().single()
                    : await sb.from('tienda_productos').insert(fila).select().single();
     if (r.error){ $('#guardar').disabled = false; return err(em(r.error)); }
     const pid = r.data.id;
-    if (borrar.length){ const d = await sb.from('tienda_variantes').delete().in('id', borrar); if (d.error) return err(em(d.error)); }
-    for (const v of vs){
-      const row = { producto_id: pid, talle: v.talle.trim(), color: (v.color || '').trim(), stock: v.stock || 0, activo: !!v.activo, precio: v.precio ?? null };
-      const x = v.id ? await sb.from('tienda_variantes').update(row).eq('id', v.id) : await sb.from('tienda_variantes').insert(row);
-      if (x.error){ $('#guardar').disabled = false; return err(em(x.error)); }
-    }
+    const g = await sb.rpc('tienda_guardar_variantes', { p_producto: pid, p_variantes: vsGuardar });
+    if (g.error){ $('#guardar').disabled = false; return err(em(g.error)); }
     ultimoEditado = pid; toast('Guardado'); productos();
   };
 }

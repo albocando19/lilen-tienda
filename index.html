@@ -334,7 +334,7 @@ async function cargar(){
   sb.rpc('tienda_liberar_vencidos').then(() => {}, () => {});
   const [c, p, k] = await Promise.all([
     sb.from('tienda_config').select('*').eq('id', 1).maybeSingle(),
-    sb.from('tienda_productos').select('id, nombre, descripcion, categoria, precio, precio_anterior, fotos, orden, creado, tienda_variantes(id, talle, color, stock, precio)')
+    sb.from('tienda_productos').select('id, nombre, descripcion, categoria, precio, precio_anterior, fotos, orden, creado, atributos, tienda_variantes(id, talle, color, stock, precio, opciones)')
       .order('orden').order('creado', { ascending:false }).limit(5000),
     sb.from('tienda_categorias').select('nombre').order('orden').then(r => r, () => ({ data: [] }))
   ]);
@@ -432,15 +432,39 @@ $('#btnBuscar').onclick = () => { $('#buscador').classList.toggle('open'); if ($
 let hq; $('#q').oninput = e => { clearTimeout(hq); hq = setTimeout(() => { texto = e.target.value; mostrados = POR_PAGINA; pintarGrid(); document.getElementById('catalogo').scrollIntoView({ behavior:'smooth' }); }, 250); };
 
 // ---------- producto ----------
+// Variables del producto (Talle, Color, Escote…). Los productos viejos se arman con talle y color.
+const esTalleT = n => /^\s*talles?\s*$/i.test(String(n || ''));
+function attrsTienda(p){
+  if (Array.isArray(p.atributos) && p.atributos.length) return p.atributos;
+  const talles = [...new Set(p.vars.map(v => (v.talle || '').trim()).filter(Boolean))];
+  const colores = [...new Set(p.vars.map(v => (v.color || '').trim()).filter(Boolean))];
+  const a = [];
+  if (talles.length && !talles.every(t => /^[úu]nico$/i.test(t))) a.push({ nombre: 'Talle', valores: talles });
+  if (colores.length) a.push({ nombre: 'Color', valores: colores });
+  return a;
+}
+const valsTienda = (v, attrs) => attrs.map(a => v.opciones && typeof v.opciones === 'object' ? v.opciones[a.nombre] : (esTalleT(a.nombre) ? v.talle : v.color));
+
 function verProducto(id){
   const p = productos.find(x => x.id === id); if (!p) return;
   const conStock = p.vars.filter(v => v.stock > 0);
-  let sel = conStock.length === 1 ? conStock[0].id : null;
+  const attrs = attrsTienda(p).filter(a => a.valores && a.valores.length);
+  // Elección de la clienta: un valor por variable
+  let elegido = attrs.map(() => null);
+  if (conStock.length === 1) elegido = valsTienda(conStock[0], attrs);
+  attrs.forEach((a, i) => { const vivos = a.valores.filter(val => conStock.some(v => valsTienda(v, attrs)[i] === val)); if (vivos.length === 1 && a.valores.length === 1) elegido[i] = vivos[0]; });
+  const varianteElegida = () => attrs.length
+    ? p.vars.find(v => valsTienda(v, attrs).every((x, i) => x === elegido[i]))
+    : p.vars[0];
+  // ¿Hay stock de este valor, con lo que ya eligió en las otras variables?
+  const disponible = (i, val) => conStock.some(v => { const vs = valsTienda(v, attrs); return vs[i] === val && vs.every((x, k) => k === i || elegido[k] === null || x === elegido[k]); });
+  let sel = null;
   const fotos = (p.fotos || []).length ? p.fotos : [''];
-  const soloUnico = p.vars.length === 1 && p.vars[0].talle === 'Único' && !p.vars[0].color;
   const pintar = () => {
-    const v = p.vars.find(v => v.id === sel);
-    const etiqueta = p.vars.some(x => x.talle !== 'Único') ? (p.vars.some(x => x.color) ? 'Talle y color' : 'Talle') : (p.vars.some(x => x.color) ? 'Color · talle único' : 'Opción');
+    const v0 = varianteElegida();
+    const v = v0 && v0.stock > 0 ? v0 : null;
+    sel = v ? v.id : null;
+    const falta = attrs.map((a, i) => elegido[i] === null ? a.nombre.toLowerCase() : null).filter(Boolean);
     $('#prodBody').innerHTML = `<div class="pd">
       <div><div class="gal" id="gal">${fotos.map(f => f ? `<img src="${esc(f)}" alt="${esc(p.nombre)}">` : '<div class="noimg"></div>').join('')}</div>
         ${fotos.length > 1 ? `<div class="dots">${fotos.map(() => '<i></i>').join('')}</div>` : ''}</div>
@@ -448,14 +472,20 @@ function verProducto(id){
         ${p.categoria ? `<p class="cat">${esc(p.categoria)}</p>` : ''}
         <h2>${esc(p.nombre)}</h2>
         <p class="precio" style="font-size:21px;margin:10px 0 0">${precioHTML(p, v)}</p>
-        ${!conStock.length ? '<p class="hint" style="margin-top:18px">Sin stock por ahora.</p>' : soloUnico ? '' : `
-          <p class="lbl">${etiqueta}</p>
-          <div class="talles">${p.vars.map(x => `<button class="talle" aria-pressed="${x.id === sel}" data-v="${x.id}" ${x.stock ? '' : 'disabled'}>${esc([x.talle !== 'Único' ? x.talle : '', x.color].filter(Boolean).join(' · ') || 'Único')}</button>`).join('')}</div>`}
-        ${conStock.length ? `<p class="hint ${v && v.stock <= 2 ? 'ult' : ''}" style="margin:10px 0 0">${v ? (v.stock <= 2 ? `Quedan ${v.stock}.` : 'Hay stock.') : 'Elegí una opción para sumarla a la bolsa.'}</p>` : ''}
+        ${!conStock.length ? '<p class="hint" style="margin-top:18px">Sin stock por ahora.</p>' : attrs.map((a, i) => `
+          <p class="lbl">${esc(a.nombre)}${elegido[i] !== null ? `: <strong style="color:var(--ink)">${esc(elegido[i])}</strong>` : ''}</p>
+          <div class="talles">${a.valores.map(val => `<button class="talle" aria-pressed="${elegido[i] === val}" data-i="${i}" data-val="${esc(val)}" ${disponible(i, val) ? '' : 'disabled'}>${esc(val)}</button>`).join('')}</div>`).join('')}
+        ${conStock.length ? `<p class="hint ${v && v.stock <= 2 ? 'ult' : ''}" style="margin:10px 0 0">${v ? (v.stock <= 2 ? `Quedan ${v.stock}.` : 'Hay stock.') : falta.length ? `Elegí ${falta.length > 1 ? falta.slice(0, -1).join(', ') + ' y ' + falta[falta.length - 1] : falta[0]} para sumarlo a la bolsa.` : 'No hay stock de esa combinación. Probá con otra.'}</p>` : ''}
         <div style="margin:18px 0"><button class="btn" id="add" ${v ? '' : 'disabled'}>Sumar a la bolsa</button></div>
         ${p.descripcion ? `<p class="desc">${esc(p.descripcion)}</p>` : ''}
       </div></div>`;
-    $('#prodBody').querySelectorAll('.talle').forEach(b => b.onclick = () => { sel = +b.dataset.v; pintar(); });
+    $('#prodBody').querySelectorAll('.talle').forEach(b => b.onclick = () => {
+      const i = +b.dataset.i, val = b.dataset.val;
+      elegido[i] = elegido[i] === val ? null : val;
+      // si con la nueva elección otra variable quedó sin stock, se libera para que elija de nuevo
+      attrs.forEach((_, k) => { if (k !== i && elegido[k] !== null && !disponible(k, elegido[k])) elegido[k] = null; });
+      pintar();
+    });
     const add = $('#add'); if (add) add.onclick = () => { if (agregar(sel)) { cerrar(); toast('Sumado a la bolsa'); } };
     const gal = $('#gal'), dots = document.querySelectorAll('.dots i');
     if (dots.length){ const marcar = () => { const i = Math.round(gal.scrollLeft / gal.clientWidth); dots.forEach((d, k) => d.style.background = k === i ? 'var(--peony)' : ''); }; gal.onscroll = marcar; marcar(); }
