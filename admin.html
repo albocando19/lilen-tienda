@@ -52,6 +52,19 @@
   td,th{padding:6px 4px;border-bottom:1px solid var(--line);text-align:left;vertical-align:middle}
   th{font-size:12px;color:var(--muted);font-weight:500}
   td input{padding:6px 8px}
+  /* Talles en celu: cada talle es una tarjetita con los campos grandes y con nombre */
+  @media(max-width:700px){
+    #vars, #vars tbody{display:block}
+    #vars tr:first-child{display:none}
+    #vars tr{display:grid;grid-template-columns:1fr 1fr;gap:10px 12px;align-items:end;border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:10px;background:#fff}
+    #vars td{border:0;padding:0}
+    #vars td::before{content:attr(data-label);display:block;font-size:12px;color:var(--muted);margin-bottom:3px}
+    #vars td input:not([type=checkbox]){width:100% !important;font-size:16px;padding:10px}
+    #vars .v-vis{display:flex;align-items:center;gap:8px}
+    #vars .v-vis::before{margin:0}
+    #vars .v-vis input{width:22px !important;height:22px}
+    #vars .v-del{text-align:right}
+  }
   tr.editado td{background:#FBE7EE}
   .tag-editado{display:inline-block;white-space:nowrap;background:#B0275F;color:#fff;border-radius:999px;font-size:11px;padding:1px 8px;margin-right:6px;vertical-align:middle}
   .thumb{width:44px;height:56px;object-fit:cover;border-radius:6px;background:var(--chip)}
@@ -274,12 +287,12 @@ async function editar(p){
   const borrar = [];
   const pintarVars = () => {
     $('#vars').innerHTML = `<tr>${unico ? '' : '<th>Talle</th>'}<th>${unico ? 'Color' : 'Color / modelo'}</th><th>Stock</th><th>Precio (si cambia)</th><th>Visible</th><th></th></tr>` + vars.map((v, k) => `<tr>
-      ${unico ? '' : `<td><input data-k="${k}" data-f="talle" value="${esc(v.talle)}" placeholder="M"></td>`}
-      <td><input data-k="${k}" data-f="color" value="${esc(v.color)}" placeholder="${unico ? 'Negro' : ''}"></td>
-      <td><input data-k="${k}" data-f="stock" type="number" min="0" value="${v.stock}" style="width:80px"></td>
-      <td><input data-k="${k}" data-f="precio" type="number" min="0" value="${v.precio ?? ''}" placeholder="—" style="width:100px"></td>
-      <td><input data-k="${k}" data-f="activo" type="checkbox" ${v.activo ? 'checked' : ''} style="width:auto"></td>
-      <td><button class="btn danger" data-del="${k}">✕</button></td></tr>`).join('');
+      ${unico ? '' : `<td data-label="Talle"><input data-k="${k}" data-f="talle" value="${esc(v.talle)}" placeholder="M"></td>`}
+      <td data-label="${unico ? 'Color' : 'Color / modelo'}"><input data-k="${k}" data-f="color" value="${esc(v.color)}" placeholder="${unico ? 'Negro' : ''}"></td>
+      <td data-label="Stock"><input data-k="${k}" data-f="stock" inputmode="numeric" type="number" min="0" value="${v.stock}" style="width:80px"></td>
+      <td data-label="Precio (si cambia)"><input data-k="${k}" data-f="precio" inputmode="numeric" type="number" min="0" value="${v.precio ?? ''}" placeholder="—" style="width:100px"></td>
+      <td data-label="Visible" class="v-vis"><input data-k="${k}" data-f="activo" type="checkbox" ${v.activo ? 'checked' : ''} style="width:auto"></td>
+      <td class="v-del"><button class="btn danger" data-del="${k}" aria-label="Quitar">✕</button></td></tr>`).join('');
     $('#vars').querySelectorAll('input').forEach(i => i.oninput = () => { const v = vars[+i.dataset.k]; v[i.dataset.f] = i.type === 'checkbox' ? i.checked : i.dataset.f === 'precio' ? (i.value === '' ? null : Math.max(0, Number(i.value))) : i.type === 'number' ? Math.max(0, parseInt(i.value || 0)) : i.value; });
     $('#vars').querySelectorAll('[data-del]').forEach(b => b.onclick = () => { const [v] = vars.splice(+b.dataset.del, 1); if (v.id) borrar.push(v.id); pintarVars(); });
   };
