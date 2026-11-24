@@ -202,6 +202,8 @@
   .cierre .ig{background:var(--peony);color:#fff}
   .cierre .wa{border:1px solid var(--ink)}
   .aviso-interno{position:sticky;top:0;z-index:30;background:var(--peony);color:#fff;text-align:center;font-size:14px;padding:8px 16px}
+  .f.mal{border-color:var(--warn);box-shadow:0 0 0 1px var(--warn)}
+  select.f{width:100%;border:1px solid var(--line);border-radius:8px;background:var(--card);padding:12px}
 </style>
 </head>
 <body>
@@ -556,15 +558,16 @@ function verCarrito(){
 }
 
 // ---------- datos de compra ----------
+const PROVINCIAS = ['Buenos Aires', 'CABA', 'Catamarca', 'Chaco', 'Chubut', 'Córdoba', 'Corrientes', 'Entre Ríos', 'Formosa', 'Jujuy', 'La Pampa', 'La Rioja', 'Mendoza', 'Misiones', 'Neuquén', 'Río Negro', 'Salta', 'San Juan', 'San Luis', 'Santa Cruz', 'Santa Fe', 'Santiago del Estero', 'Tierra del Fuego', 'Tucumán'];
 async function checkout(){
   $('#cartTitle').textContent = 'Tus datos';
   let pre = store.get('lilen-datos', {});
   if (session){
     const { data } = await sb.from('tienda_clientes').select('*').eq('id', session.user.id).maybeSingle();
-    if (data) pre = { ...pre, nombre: data.nombre, whatsapp: data.whatsapp, direccion: data.direccion };
+    if (data) pre = { ...pre, nombre: data.nombre, whatsapp: data.whatsapp, provincia: data.provincia || pre.provincia, localidad: data.localidad || pre.localidad };
     else {
       const prev = await sb.rpc('tienda_mis_datos_previos');
-      if (prev.data) pre = { ...pre, nombre: prev.data.nombre || pre.nombre, whatsapp: prev.data.whatsapp || pre.whatsapp, direccion: prev.data.direccion || pre.direccion };
+      if (prev.data) pre = { ...pre, nombre: prev.data.nombre || pre.nombre, whatsapp: prev.data.whatsapp || pre.whatsapp };
     }
     pre.email = session.user.email;
   }
@@ -573,11 +576,16 @@ async function checkout(){
   $('#cartBody').innerHTML = `
     ${session ? '' : `<p class="hint" style="margin-top:0">¿Ya compraste antes? <button class="link" id="ckLogin">Ingresá a tu cuenta</button> y completamos tus datos. Si no, podés comprar igual.</p>`}
     <label class="f" for="fNom">Nombre y apellido</label><input class="f" id="fNom" autocomplete="name" value="${esc(pre.nombre)}">
-    <label class="f" for="fWa">WhatsApp</label><input class="f" id="fWa" inputmode="tel" autocomplete="tel" placeholder="11 2345 6789" value="${esc(pre.whatsapp)}">
-    <label class="f" for="fMail">Email (opcional)</label><input class="f" id="fMail" type="email" autocomplete="email" value="${esc(pre.email)}" ${session ? 'readonly' : ''}>
+    <label class="f" for="fWa">Teléfono (WhatsApp)</label><input class="f" id="fWa" type="tel" inputmode="tel" autocomplete="tel" placeholder="11 2345 6789" value="${esc(pre.whatsapp)}">
+    <label class="f" for="fMail" id="lMail">Email</label><input class="f" id="fMail" type="email" autocomplete="email" placeholder="tumail@gmail.com" value="${esc(pre.email)}" ${session ? 'readonly' : ''}>
     <p class="lbl">Entrega</p>
-    <div class="seg"><button type="button" data-e="envio">Envío<small>${envio ? plata(envio) : 'A coordinar'}</small></button><button type="button" data-e="retiro">Retiro<small>Sin cargo</small></button></div>
-    <div id="dirBox"><label class="f" for="fDir">Dirección completa (calle, número, piso, localidad, CP)</label><textarea class="f" id="fDir" autocomplete="street-address">${esc(pre.direccion)}</textarea></div>
+    <div class="seg"><button type="button" data-e="envio">Envío a sucursal<small>Correo Argentino · ${envio ? plata(envio) : 'a coordinar'}</small></button><button type="button" data-e="retiro">Retiro<small>Sin cargo</small></button></div>
+    <div id="dirBox">
+      <p class="hint" style="margin:10px 0 0">Enviamos siempre por <strong>Correo Argentino a sucursal</strong>. Cuando sale el paquete te avisamos por WhatsApp a qué sucursal retirarlo.</p>
+      <label class="f" for="fProv">Provincia</label>
+      <select class="f" id="fProv" autocomplete="address-level1"><option value="">Elegí tu provincia</option>${PROVINCIAS.map(x => `<option ${x === pre.provincia ? 'selected' : ''}>${x}</option>`).join('')}</select>
+      <label class="f" for="fLoc">Localidad</label><input class="f" id="fLoc" autocomplete="address-level2" placeholder="Ej: San Miguel" value="${esc(pre.localidad)}">
+    </div>
     <label class="f" for="fNotas">Notas (opcional)</label><textarea class="f" id="fNotas"></textarea>
     <div class="err" id="ckErr" role="alert"></div>`;
   const pie = () => {
@@ -590,30 +598,45 @@ async function checkout(){
     $('#volver').onclick = verCarrito;
     $('#confirmar').onclick = confirmar;
   };
-  const pintarSeg = () => { $('#cartBody').querySelectorAll('.seg button').forEach(b => b.setAttribute('aria-pressed', b.dataset.e === entrega)); $('#dirBox').style.display = entrega === 'envio' ? 'block' : 'none'; pie(); };
+  const pintarSeg = () => {
+    $('#cartBody').querySelectorAll('.seg button').forEach(b => b.setAttribute('aria-pressed', b.dataset.e === entrega));
+    $('#dirBox').style.display = entrega === 'envio' ? 'block' : 'none';
+    $('#lMail').textContent = entrega === 'envio' ? 'Email' : 'Email (opcional)';
+    pie();
+  };
   $('#cartBody').querySelectorAll('.seg button').forEach(b => b.onclick = () => { entrega = b.dataset.e; pintarSeg(); });
   pintarSeg();
   const lg = $('#ckLogin'); if (lg) lg.onclick = verCuenta;
 
   async function confirmar(){
-    const datos = { nombre: $('#fNom').value.trim(), whatsapp: $('#fWa').value.trim(), email: $('#fMail').value.trim(), direccion: $('#fDir').value.trim(), entrega };
+    const datos = { nombre: $('#fNom').value.trim(), whatsapp: $('#fWa').value.trim(), email: $('#fMail').value.trim(), provincia: $('#fProv').value, localidad: $('#fLoc').value.trim(), entrega };
     $('#ckErr').style.display = 'none';
-    if (datos.nombre.length < 2) return mostrarErr('Escribí tu nombre y apellido.');
-    if (datos.whatsapp.replace(/\D/g, '').length < 8) return mostrarErr('Revisá el WhatsApp: tiene que tener código de área y número.');
-    if (entrega === 'envio' && datos.direccion.length < 5) return mostrarErr('Escribí la dirección completa para el envío.');
-    store.set('lilen-datos', { nombre: datos.nombre, whatsapp: datos.whatsapp, email: datos.email, direccion: datos.direccion, entrega });
+    if (datos.nombre.length < 3 || !datos.nombre.includes(' ')) return mostrarErr('Escribí tu nombre y apellido.', '#fNom');
+    if (datos.whatsapp.replace(/\D/g, '').length < 8) return mostrarErr('Revisá el teléfono: tiene que tener código de área y número.', '#fWa');
+    if (entrega === 'envio'){
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(datos.email)) return mostrarErr('Para el envío necesitamos tu email.', '#fMail');
+      if (!datos.provincia) return mostrarErr('Elegí tu provincia.', '#fProv');
+      if (datos.localidad.length < 2) return mostrarErr('Escribí tu localidad.', '#fLoc');
+    } else if (datos.email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(datos.email)) return mostrarErr('Revisá el email, o dejalo vacío.', '#fMail');
+    datos.direccion = entrega === 'envio' ? `sucursal de Correo Argentino (${datos.localidad}, ${datos.provincia})` : '';
+    store.set('lilen-datos', { nombre: datos.nombre, whatsapp: datos.whatsapp, email: datos.email, provincia: datos.provincia, localidad: datos.localidad, entrega });
     const b = $('#confirmar'); b.disabled = true; b.textContent = 'Confirmando…';
     const items = cart.map(i => ({ variante_id: i.variante_id, cant: i.cant }));
     const resumen = cart.map(i => { const { p, v } = varPorId(i.variante_id); return `${i.cant} × ${p.nombre}${nombreVar(v) ? ' (' + nombreVar(v) + ')' : ''}`; });
     const { data, error } = await sb.rpc('tienda_crear_pedido', {
       p_items: items, p_nombre: datos.nombre, p_whatsapp: datos.whatsapp, p_email: datos.email || null,
-      p_entrega: entrega, p_direccion: entrega === 'envio' ? datos.direccion : null, p_notas: $('#fNotas').value.trim() || null
+      p_entrega: entrega, p_direccion: null, p_notas: $('#fNotas').value.trim() || null,
+      p_provincia: entrega === 'envio' ? datos.provincia : null, p_localidad: entrega === 'envio' ? datos.localidad : null
     });
     if (error){ b.disabled = false; b.textContent = 'Confirmar pedido'; cargar(); return mostrarErr(errMsg(error)); }
     cart = []; guardarCarrito(); cargar();
     confirmado(data, resumen, datos);
   }
-  function mostrarErr(m){ const e = $('#ckErr'); e.textContent = m; e.style.display = 'block'; e.scrollIntoView({ block:'nearest' }); }
+  function mostrarErr(m, campo){
+    const e = $('#ckErr'); e.textContent = m; e.style.display = 'block';
+    $('#cartBody').querySelectorAll('.f').forEach(x => x.classList.remove('mal'));
+    if (campo){ const c = $(campo); c.classList.add('mal'); c.focus(); c.scrollIntoView({ block:'center' }); } else e.scrollIntoView({ block:'nearest' });
+  }
 }
 
 function linkPedido(token){ return location.origin + location.pathname + '?pedido=' + token; }
