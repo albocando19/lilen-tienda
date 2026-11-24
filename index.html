@@ -352,7 +352,11 @@ async function cargar(){
   }
   pintarConfig();
   productos = (p.data || []).map(x => ({ ...x, vars: (x.tienda_variantes || []).sort((a, b) => a.id - b.id) }))
-    .sort((a, b) => (stockTotal(b) > 0) - (stockTotal(a) > 0)); // con stock primero
+    .map(x => ({ x, r: Math.random() }))
+    // Cada visita muestra otro orden: primero lo que tiene stock, respetando el "Orden" del panel
+    // (un número menor queda siempre arriba) y mezclando al azar los que tienen el mismo número
+    .sort((a, b) => (stockTotal(b.x) > 0) - (stockTotal(a.x) > 0) || (a.x.orden || 0) - (b.x.orden || 0) || a.r - b.r)
+    .map(o => o.x);
   pintarArcos(); pintarChips(); pintarGrid(); limpiarCarrito(); contar();
 }
 // ¿Hay alguien del equipo con sesión en el panel (admin.html) en este navegador?
