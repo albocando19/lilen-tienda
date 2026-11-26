@@ -61,6 +61,7 @@
     #vars td input[data-f=precio]{width:74px !important}
     #vars .v-vis input{width:22px;height:22px}
   }
+  .prendas{background:#B0275F;color:#fff;border-radius:999px;padding:2px 10px;font-size:13px;font-weight:600;white-space:nowrap}
   .items-ped{display:flex;flex-direction:column;gap:8px;margin:10px 0}
   .item-ped{display:flex;gap:10px;align-items:flex-start}
   .item-foto{flex:none;width:56px;height:70px;border-radius:6px;overflow:hidden;border:1px solid var(--line);padding:0;background:#efe9e1;cursor:zoom-in}
@@ -170,7 +171,7 @@ async function pedidos(){
     ${error ? `<div class="card">${esc(em(error))}</div>` : ''}
     ${(data || []).length ? '' : '<p class="muted" style="padding:30px 0;text-align:center">No hay pedidos acá.</p>'}
     ${(data || []).map(p => `<div class="card">
-      <div class="row"><strong>#${p.id}</strong><span class="state ${p.estado}">${ESTADOS[p.estado]}</span><span class="muted">${fecha(p.creado)}</span><span class="sp"></span><strong>${plata(p.total)}</strong></div>
+      <div class="row"><strong>#${p.id}</strong><span class="state ${p.estado}">${ESTADOS[p.estado]}</span><span class="muted">${fecha(p.creado)}</span><span class="sp"></span><span class="prendas">${(n => n + (n === 1 ? ' prenda' : ' prendas'))(p.tienda_pedido_items.reduce((t, i) => t + (i.cant || 0), 0))}</span><strong>${plata(p.total)}</strong></div>
       <div style="margin:8px 0">${esc(p.nombre)} · <a href="${waLink(p.whatsapp)}" target="_blank" rel="noopener">${esc(p.whatsapp)}</a>${p.email ? ' · ' + esc(p.email) : ''}</div>
       <div class="muted">${p.entrega === 'envio' ? 'Envío: ' + esc(p.direccion) : 'Retira en el local'}${p.notas ? ' · Nota: ' + esc(p.notas) : ''}${p.envio ? ' · Envío ' + plata(p.envio) : ''}</div>
       <div class="items-ped">${p.tienda_pedido_items.map(i => { const pr = prodDe(i); const f = pr && pr.fotos && pr.fotos[0]; if (pr) fotosPedidos.set(pr.id, pr); return `<div class="item-ped">
