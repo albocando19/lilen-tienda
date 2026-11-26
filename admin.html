@@ -61,6 +61,20 @@
     #vars td input[data-f=precio]{width:74px !important}
     #vars .v-vis input{width:22px;height:22px}
   }
+  .items-ped{display:flex;flex-direction:column;gap:8px;margin:10px 0}
+  .item-ped{display:flex;gap:10px;align-items:flex-start}
+  .item-foto{flex:none;width:56px;height:70px;border-radius:6px;overflow:hidden;border:1px solid var(--line);padding:0;background:#efe9e1;cursor:zoom-in}
+  .item-foto img{width:100%;height:100%;object-fit:cover;display:block}
+  .item-foto.sin{display:grid;place-items:center;font-size:10px;color:var(--muted);text-align:center;cursor:default}
+  .item-txt{flex:1;min-width:0;line-height:1.35}
+  .item-link{font-size:13px;color:#B0275F}
+  .visor{position:fixed;inset:0;z-index:50;background:rgba(20,12,16,.92);display:flex;flex-direction:column}
+  .visor-head{display:flex;align-items:center;gap:12px;padding:12px 16px;color:#fff}
+  .visor-head a{color:#fff;font-size:14px}
+  .visor-x{background:none;border:0;color:#fff;font-size:26px;cursor:pointer;padding:0 4px}
+  .visor-fotos{flex:1;display:flex;gap:12px;overflow-x:auto;scroll-snap-type:x mandatory;padding:0 16px 16px;align-items:center}
+  .visor-fotos img{flex:0 0 100%;max-height:100%;object-fit:contain;scroll-snap-align:center;border-radius:8px}
+  .visor-pie{color:#ddd;text-align:center;font-size:13px;padding-bottom:14px}
   tr.editado td{background:#FBE7EE}
   .tag-editado{display:inline-block;white-space:nowrap;background:#B0275F;color:#fff;border-radius:999px;font-size:11px;padding:1px 8px;margin-right:6px;vertical-align:middle}
   .thumb{width:44px;height:56px;object-fit:cover;border-radius:6px;background:var(--chip)}
@@ -125,13 +139,33 @@ function login(msg){
 }
 
 // ---------- pedidos ----------
+let fotosPedidos = new Map();
+// Visor de fotos a pantalla completa (se cierra tocando afuera, con la ✕ o con Escape)
+function verFotos(pr){
+  if (!pr || !pr.fotos || !pr.fotos.length) return;
+  const d = document.createElement('div'); d.className = 'visor';
+  d.innerHTML = `<div class="visor-head"><strong>${esc(pr.nombre)}</strong><span class="sp"></span>
+      <a href="./?p=${pr.id}" target="_blank" rel="noopener">Ver en la tienda ↗</a><button class="visor-x" aria-label="Cerrar">✕</button></div>
+    <div class="visor-fotos">${pr.fotos.map(f => `<img src="${esc(f)}" alt="">`).join('')}</div>
+    ${pr.fotos.length > 1 ? `<div class="visor-pie">${pr.fotos.length} fotos · deslizá para ver más</div>` : ''}`;
+  const cerrar = () => { d.remove(); document.removeEventListener('keydown', esc_); };
+  const esc_ = e => { if (e.key === 'Escape') cerrar(); };
+  d.onclick = e => { if (e.target === d || e.target.classList.contains('visor-fotos') || e.target.closest('.visor-x')) cerrar(); };
+  document.addEventListener('keydown', esc_);
+  document.body.appendChild(d);
+}
 async function pedidos(){
   const M = $('#main');
   await sb.rpc('tienda_liberar_vencidos');
   const fs = ['pendiente','pagado','enviado','entregado','vencido','cancelado','todos'];
-  let q = sb.from('tienda_pedidos').select('*, tienda_pedido_items(*)').order('creado', { ascending:false }).limit(100);
+  let q = sb.from('tienda_pedidos').select('*, tienda_pedido_items(*, tienda_variantes(producto_id))').order('creado', { ascending:false }).limit(100);
   if (filtro !== 'todos') q = q.eq('estado', filtro);
-  const { data, error } = await q;
+  // Fotos de los productos: por el artículo del pedido, o por el nombre si el talle/artículo se borró
+  const [{ data, error }, { data: prods }] = await Promise.all([q, sb.from('tienda_productos').select('id, nombre, fotos').limit(5000)]);
+  const porId = new Map((prods || []).map(x => [x.id, x]));
+  const porNombre = new Map((prods || []).map(x => [x.nombre.trim().toLowerCase(), x]));
+  const prodDe = i => porId.get(i.tienda_variantes && i.tienda_variantes.producto_id) || porNombre.get((i.nombre || '').trim().toLowerCase()) || null;
+  fotosPedidos = new Map();
   M.innerHTML = `<div class="filters">${fs.map(f => `<button class="chip ${f === filtro ? 'on' : ''}" data-f="${f}">${f === 'todos' ? 'Todos' : ESTADOS[f]}</button>`).join('')}</div>
     ${error ? `<div class="card">${esc(em(error))}</div>` : ''}
     ${(data || []).length ? '' : '<p class="muted" style="padding:30px 0;text-align:center">No hay pedidos acá.</p>'}
@@ -139,11 +173,17 @@ async function pedidos(){
       <div class="row"><strong>#${p.id}</strong><span class="state ${p.estado}">${ESTADOS[p.estado]}</span><span class="muted">${fecha(p.creado)}</span><span class="sp"></span><strong>${plata(p.total)}</strong></div>
       <div style="margin:8px 0">${esc(p.nombre)} · <a href="${waLink(p.whatsapp)}" target="_blank" rel="noopener">${esc(p.whatsapp)}</a>${p.email ? ' · ' + esc(p.email) : ''}</div>
       <div class="muted">${p.entrega === 'envio' ? 'Envío: ' + esc(p.direccion) : 'Retira en el local'}${p.notas ? ' · Nota: ' + esc(p.notas) : ''}${p.envio ? ' · Envío ' + plata(p.envio) : ''}</div>
-      <ul style="margin:8px 0;padding-left:18px">${p.tienda_pedido_items.map(i => `<li>${i.cant} × ${esc(i.nombre)} · talle ${esc(i.talle)}${i.color ? ' · ' + esc(i.color) : ''} — ${plata(i.precio * i.cant)}</li>`).join('')}</ul>
+      <div class="items-ped">${p.tienda_pedido_items.map(i => { const pr = prodDe(i); const f = pr && pr.fotos && pr.fotos[0]; if (pr) fotosPedidos.set(pr.id, pr); return `<div class="item-ped">
+        ${f ? `<button class="item-foto" data-verfoto="${pr.id}" aria-label="Ver fotos de ${esc(i.nombre)}"><img src="${esc(f)}" alt="" loading="lazy"></button>` : '<div class="item-foto sin">Sin foto</div>'}
+        <div class="item-txt"><div><strong>${i.cant} ×</strong> ${esc(i.nombre)}</div>
+          <div class="muted">${[i.talle && i.talle !== 'Único' ? 'Talle ' + esc(i.talle) : '', i.color ? esc(i.color) : ''].filter(Boolean).join(' · ')}${i.talle && i.talle !== 'Único' || i.color ? ' — ' : ''}${plata(i.precio * i.cant)}</div>
+          ${pr ? `<a class="item-link" href="./?p=${pr.id}" target="_blank" rel="noopener">Ver en la tienda ↗</a>` : '<span class="muted" style="font-size:12px">El artículo ya no está en la tienda</span>'}</div>
+      </div>`; }).join('')}</div>
       ${p.estado === 'pendiente' ? `<div class="muted" style="font-size:12px;margin-bottom:8px">Se libera el stock el ${fecha(p.vence_en)} si no paga.</div>` : ''}
       <div class="row">${acciones(p.estado).map(([e, t, c]) => `<button class="btn ${c}" data-p="${p.id}" data-e="${e}">${t}</button>`).join('')}</div>
     </div>`).join('')}`;
   M.querySelectorAll('.chip').forEach(b => b.onclick = () => { filtro = b.dataset.f; pedidos(); });
+  M.querySelectorAll('[data-verfoto]').forEach(b => b.onclick = () => verFotos(fotosPedidos.get(+b.dataset.verfoto)));
   M.querySelectorAll('[data-e]').forEach(b => b.onclick = async () => {
     if (b.dataset.e === 'cancelado' && !confirm('¿Cancelar el pedido #' + b.dataset.p + '? El stock vuelve a estar disponible.')) return;
     b.disabled = true;
