@@ -147,9 +147,15 @@ async function pedidos(){
   M.querySelectorAll('[data-e]').forEach(b => b.onclick = async () => {
     if (b.dataset.e === 'cancelado' && !confirm('¿Cancelar el pedido #' + b.dataset.p + '? El stock vuelve a estar disponible.')) return;
     b.disabled = true;
-    const { error } = await sb.rpc('tienda_cambiar_estado', { p_pedido: +b.dataset.p, p_estado: b.dataset.e });
+    const { data: res, error } = await sb.rpc('tienda_cambiar_estado', { p_pedido: +b.dataset.p, p_estado: b.dataset.e });
     if (error){ b.disabled = false; return alert(em(error)); }
-    toast('Pedido #' + b.dataset.p + ': ' + ESTADOS[b.dataset.e]); pedidos();
+    // Si al reactivar un pedido faltaba stock o había artículos borrados, se marca igual y se avisa qué revisar
+    const faltan = (res && res.sin_stock) || [];
+    if (faltan.length) alert(`Pedido #${b.dataset.p} marcado como ${ESTADOS[b.dataset.e].toLowerCase()}.\n\nOjo, de estas prendas no había stock y no se descontó:\n` +
+      faltan.map(f => `• ${f.faltan} × ${f.nombre}${f.talle && f.talle !== 'Único' ? ' · talle ' + f.talle : ''}${f.color ? ' · ' + f.color : ''}${f.borrado ? ' (el artículo fue borrado)' : ''}`).join('\n') +
+      `\n\nFijate si las tienen en el local antes de armar el pedido.`);
+    else toast('Pedido #' + b.dataset.p + ': ' + ESTADOS[b.dataset.e]);
+    pedidos();
   });
 }
 function acciones(e){
